@@ -32,7 +32,11 @@ We present Crackling, a new method for whole-genome identification of suitable C
 g++ -o search_ots_score search_ots_score.cpp -std=c++11 -fopenmp -mpopcnt
 ```
 
-5. Run the pipeline: `python3 process.py -c config`
+5. Run the pipeline: 
+
+```
+python3 process.py -c config
+```
 
 ## References
 
@@ -43,3 +47,7 @@ Bradford, J., & Perrin, D. (2019). A benchmark of computational CRISPR-Cas9 guid
 Bradford, J., & Perrin, D. (2019). Improving CRISPR guide design with consensus approaches. BMC genomics, 20(9), 931.
 
 Chari, R., Yeo, N. C., Chavez, A., & Church, G. M. (2017). sgRNA Scorer 2.0: a species-independent model to predict CRISPR/Cas9 activity. ACS synthetic biology, 6(5), 902-904.
+
+Montague, T. G., Cruz, J. M., Gagnon, J. A., Church, G. M., & Valen, E. (2014). CHOPCHOP: a CRISPR/Cas9 and TALEN web tool for genome editing. Nucleic acids research, 42(W1), W401-W407.
+
+Sunagawa, G. A., Sumiyama, K., Ukai-Tadenuma, M., Perrin, D., Fujishima, H., Ukai, H., ... & Shimizu, Y. (2016). Mammalian reverse genetics without crossing reveals Nr3a as a short-sleeper gene. Cell reports, 14(3), 662-677.
