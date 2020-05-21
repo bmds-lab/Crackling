@@ -1,8 +1,10 @@
 # Crackling
 
-*CRISPR, faster, better – The Crackling method for whole-genome target detection*
+**Faster and better CRISPR guide RNA design with the Crackling method**
 
-Jacob Bradford, Dimitri Perrin
+Jacob Bradford, Timothy Chappell, Dimitri Perrin
+
+bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
 
 ## Preamble
 
@@ -26,7 +28,7 @@ We present Crackling, a new method for whole-genome identification of suitable C
 
 3. Ensure Bowtie2 and RNAFold are reachable from the installation directory.
 
-4. Compile the off-target scoring function
+4. Compile the off-target scoring function. An index of off-targets is required: to prepare this, read the next section.
 
 ```
 g++ -o search_ots_score search_ots_score.cpp -std=c++11 -fopenmp -mpopcnt
@@ -37,6 +39,53 @@ g++ -o search_ots_score search_ots_score.cpp -std=c++11 -fopenmp -mpopcnt
 ```
 python3 process.py -c config
 ```
+
+## Off-target Indexing
+
+1. Prepare a file for your genome of interest, which contains one line per chromosome.
+
+2. Extract off-target sites (excluding the PAM sequence):
+
+  ```
+  python prepareListOfftargetSites.py <input-file> <output-file>
+  ```
+  
+  For example:
+  
+  ```
+  python prepareListOfftargetSites.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
+  ```
+
+3. Sort the off-target sites. 
+
+  On Linux:
+
+  ```
+  sort --parallel=64 ~/genomes/mouse_offtargets.txt > ~/genomes/mouse_offtargets-sorted.txt
+  ```
+
+4. Build the ISSL index
+
+  Compile the indexer first: 
+  
+  ```
+  g++ -o index_offtargetSites index_offtargetSites.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+  ```
+
+  Generate the index:
+  
+  *For a 20bp sgRNA where up to four mismatches are allowed, use a slice width of eight*
+  
+  ```
+  ./index_offtargetSites <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
+  ```
+  
+  For example:
+  
+  ```
+  ./index_offtargetSites ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
+  ```
+
 
 ## References
 

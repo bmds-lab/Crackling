@@ -1,3 +1,17 @@
+/*
+
+Faster and better CRISPR guide RNA design with the Crackling method.
+Jacob Bradford, Timothy Chappell, Dimitri Perrin
+bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
+
+
+To compile:
+
+g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+
+*/
+
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
@@ -10,12 +24,17 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <sys/time.h>
-
-#include <chrono>    // for high_resolution_clock
+#include <chrono>
+#include <bitset>
+#include <iostream>
+#include <climits>
+#include <stdio.h>
+#include <cstring>
+#include <omp.h>
 
 using namespace std;
 
-size_t seqLength, seqCount, sliceWidth, sliceCount;
+size_t seqLength, seqCount, sliceWidth, sliceCount, offtargetsCount;
 
 vector<uint8_t> nucleotideIndex(256);
 vector<char> signatureIndex(4);
@@ -48,7 +67,7 @@ string signatureToSequence(uint64_t signature)
 }
 
 /**************************************/
-/**                    single_score()                    **/
+/**single_score()                    **/
 /**************************************/
 
 /*
@@ -105,18 +124,8 @@ int distance(uint64_t xoredSignatures)
 
 int main(int argc, char **argv)
 {
-    
-    long startTimer, endTimer;
-    struct timeval timecheck;
-    
-    gettimeofday(&timecheck, NULL);
-    startTimer = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
-
-    
-    
-    
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s [sissltable] [query file] [max distance]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [issltable] [query file] [max distance]\n", argv[0]);
         exit(1);
     }
     
@@ -130,25 +139,52 @@ int main(int argc, char **argv)
     signatureIndex[3] = 'T';
     
     int maxDist = atoi(argv[3]);
-
-    //auto start = std::chrono::high_resolution_clock::now();
+    double threshold = atof(argv[4]);
 
     FILE *fp = fopen(argv[1], "rb");
-    vector<size_t> slicelistHeader(4);
-    fread(slicelistHeader.data(), sizeof(size_t), slicelistHeader.size(), fp);
-    seqLength = slicelistHeader[0];
-    seqCount = slicelistHeader[1];
-    sliceWidth = slicelistHeader[2];
-    sliceCount = slicelistHeader[3];
+    vector<size_t> slicelistHeader(5);
+	
+    if (fread(slicelistHeader.data(), sizeof(size_t), slicelistHeader.size(), fp) == 0) {
+		fprintf(stderr, "Error reading index: header invalid\n");
+		return 1;
+	}
+	
+	offtargetsCount = slicelistHeader[0];
+    seqLength       = slicelistHeader[1];
+    seqCount        = slicelistHeader[2];
+    sliceWidth      = slicelistHeader[3];
+    sliceCount      = slicelistHeader[4];
     
     size_t sliceLimit = 1 << sliceWidth;
-    vector<size_t> allSlicelistSizes(sliceCount * sliceLimit);
+    
+	// Load in all of the off-target sites
+    vector<uint64_t> offtargets(offtargetsCount);
+    if (fread(offtargets.data(), sizeof(uint64_t), offtargetsCount, fp) == 0) {
+		fprintf(stderr, "Error reading index: loading off-target sequences failed\n");
+		return 1;
+	}
+		
+	// Create enough 1-bit "seen" flags for the off-targets
+	// We only want to score a candidate guide against an off-target once.
+	// The least-significant bit represents the first off-target
+	// 0 0 0 1   0 1 0 0   would indicate that the 3rd and 5th off-target have been seen.
+	// The CHAR_BIT macro tells us how many bits are in a byte (C++ >= 8 bits per byte)
+	uint64_t numOfftargetToggles = (offtargetsCount / ((size_t)sizeof(uint64_t) * (size_t)CHAR_BIT)) + 1;
+
+	
+	vector<size_t> allSlicelistSizes(sliceCount * sliceLimit);
     vector<uint64_t> allSignatures(seqCount * sliceCount);
     
-    fread(allSlicelistSizes.data(), sizeof(size_t), allSlicelistSizes.size(), fp);
-    fread(allSignatures.data(), sizeof(uint64_t), allSignatures.size(), fp);
+    if (fread(allSlicelistSizes.data(), sizeof(size_t), allSlicelistSizes.size(), fp) == 0) {
+		fprintf(stderr, "Error reading index: reading slice list sizes failed\n");
+		return 1;
+	}
+	
+    if (fread(allSignatures.data(), sizeof(uint64_t), allSignatures.size(), fp) == 0) {
+		fprintf(stderr, "Error reading index: reading slice contents failed\n");
+		return 1;
+	}
     fclose(fp);
-    
     vector<vector<uint64_t *>> sliceLists(sliceCount, vector<uint64_t *>(sliceLimit));
     
     {
@@ -190,23 +226,24 @@ int main(int argc, char **argv)
             querySignatures[i] = signature;
         }
     }
-
+	
     #pragma omp parallel
     {
         unordered_map<uint64_t, unordered_set<uint64_t>> searchResults;
+		vector<uint64_t> offtargetToggles(numOfftargetToggles);
     
-		//auto startB = std::chrono::high_resolution_clock::now();
         #pragma omp for
         for (size_t searchIdx = 0; searchIdx < querySignatures.size(); searchIdx++) {
-            auto searchSignature = querySignatures[searchIdx];
-            auto &searchSigs = searchResults[searchSignature];
-			
+			uint64_t * offtargetTogglesTail = offtargetToggles.data() + numOfftargetToggles - 1;
+
+			auto searchSignature = querySignatures[searchIdx];
+
 			double totscore = 0.0;
             int numOffTargetSitesScored = 0;
-            double threshold = 75.0;
+
             double maximum_sum = (10000.0 - threshold*100) / threshold;
 			bool checkNextSlice = true;
-			
+
             for (size_t i = 0; i < sliceCount; i++) { //  && checkNextSlice
                 uint64_t sliceMask = sliceLimit - 1;
                 int sliceShift = sliceWidth * i;
@@ -219,43 +256,54 @@ int main(int argc, char **argv)
                 
                 size_t signaturesInSlice = allSlicelistSizes[idx];
                 uint64_t *sliceOffset = sliceList[searchSlice];
-                
+				
                 for (size_t j = 0; j < signaturesInSlice; j++) {
-                    auto signature = sliceOffset[j];
-                    int dist = distance(searchSignature ^ signature);
-                    if (dist <= maxDist && searchSigs.insert(signature).second) {
-                        //searchSigs.insert(signature);
+                    auto signatureWithOccurrencesAndId = sliceOffset[j];
+                    auto signatureId = (uint32_t)signatureWithOccurrencesAndId;
+					auto signature = (offtargets[signatureId]);
+
+					int dist = distance(searchSignature ^ signature);
+					
+					if (dist > 0 && dist <= maxDist) {
 						
-						totscore += sscore(searchSignature ^ signature);
-						
-						if (totscore > maximum_sum) {
-							checkNextSlice = false;
-							break;
+						// check if we've already seen this off-target
+						uint64_t seenOfftargetAlready = 0;
+						if (i > 0) {
+							seenOfftargetAlready = *(offtargetTogglesTail - (signatureId / 64));
+							seenOfftargetAlready = (seenOfftargetAlready >> (signatureId % 64)) & 1ULL;
 						}
-                    }
+						
+						if (i == 0 || seenOfftargetAlready == 0) {
+
+							uint32_t occurrences = (uint32_t)(signatureWithOccurrencesAndId >> (32));
+							totscore += sscore(searchSignature ^ signature) * (double)occurrences;
+							
+							if (totscore > maximum_sum) {
+								checkNextSlice = false;
+								break;
+							}
+							
+							*(offtargetTogglesTail - (signatureId / 64)) |= (1ULL << (signatureId % 64));
+
+							numOffTargetSitesScored += occurrences;
+						}
+					}
                 }
 				
 				if (!checkNextSlice)
 					break;
             }
-			
+
 			auto querySequence = signatureToSequence(searchSignature);
 			#pragma omp critical
 			{
 				printf("%s\t", querySequence.c_str());
 				printf("%f\n", 10000.0 / (100.0 + totscore));
 			}
+			memset(offtargetToggles.data(), 0, sizeof(uint64_t)*offtargetToggles.size());
         }
 		
     }
-    
-    
-    gettimeofday(&timecheck, NULL);
-    endTimer = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
-    
-    printf("%ld milliseconds elapsed\n", (endTimer - startTimer));
-    
-    
-    
+	
     return 0;
 }
