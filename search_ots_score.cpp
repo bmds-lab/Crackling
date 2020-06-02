@@ -7,7 +7,7 @@ bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
 
 To compile:
 
-g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
 
 */
 
@@ -31,10 +31,12 @@ g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt
 #include <stdio.h>
 #include <cstring>
 #include <omp.h>
+#include <phmap.h>
+#include <map>
 
 using namespace std;
 
-size_t seqLength, seqCount, sliceWidth, sliceCount, offtargetsCount;
+size_t seqLength, seqCount, sliceWidth, sliceCount, offtargetsCount, scoresCount;
 
 vector<uint8_t> nucleotideIndex(256);
 vector<char> signatureIndex(4);
@@ -45,7 +47,6 @@ size_t getFileSize(const char *path)
     stat64(path, &statBuf);
     return statBuf.st_size;
 }
-
 
 uint64_t sequenceToSignature(const char *ptr)
 {
@@ -64,62 +65,6 @@ string signatureToSequence(uint64_t signature)
         sequence[j] = signatureIndex[(signature >> (j * 2)) & 0x3];
     }
     return sequence;
-}
-
-/**************************************/
-/**single_score()                    **/
-/**************************************/
-
-/*
- Computes the score of a single off-target site
- Input: array containing all the mismatches between this site and the target, length of the array
- Output: score
- */
-
-double single_score(int* mismatch_array, int length) {
-    int i;
-    double T1=1.0, T2, T3, d=0.0, score;
-    double M[] = {0.0, 0.0, 0.014, 0.0, 0.0, 0.395, 0.317, 0.0, 0.389, 0.079, 0.445, 0.508, 0.613, 0.851, 0.732, 0.828, 0.615, 0.804, 0.685, 0.583};
-
-    /* 1st term */
-    for(i=0; i<length; ++i)
-            T1 = T1*(1.0-M[mismatch_array[i]]);
-
-    /* 2nd term */
-    if(length==1)
-            d = 19.0;
-    else {
-            for(i=0; i<length-1; ++i)
-                    d += mismatch_array[i+1]-mismatch_array[i];
-            d = d/(length-1);
-    }
-    T2 = 1.0 / ((19.0-d)/19.0 * 4.0 + 1);
-
-    /* 3rd term */
-    T3 = 1.0 / (length*length);
-
-    /* Total score */
-    score = T1*T2*T3*100;
-    return score;
-}
-
-double sscore(uint64_t xoredSignatures)
-{
-    int mismatch_array[20], m = 0;
-    for (size_t j = 0; j < seqLength; j++) {
-        if ((xoredSignatures >> (j * 2)) & 0x3) {
-            mismatch_array[m++] = j;
-        }
-    }
-    if (m == 0) return 0.0;
-    return single_score(mismatch_array, m);
-}
-
-int distance(uint64_t xoredSignatures)
-{
-    uint64_t evenBits = xoredSignatures & 0xAAAAAAAAAAAAAAAAull;
-    uint64_t oddBits = xoredSignatures & 0x5555555555555555ull;
-    return __builtin_popcountll((evenBits >> 1) | oddBits);
 }
 
 int main(int argc, char **argv)
@@ -142,8 +87,7 @@ int main(int argc, char **argv)
     double threshold = atof(argv[4]);
 
     FILE *fp = fopen(argv[1], "rb");
-    vector<size_t> slicelistHeader(5);
-	
+    vector<size_t> slicelistHeader(6);
     if (fread(slicelistHeader.data(), sizeof(size_t), slicelistHeader.size(), fp) == 0) {
 		fprintf(stderr, "Error reading index: header invalid\n");
 		return 1;
@@ -154,9 +98,23 @@ int main(int argc, char **argv)
     seqCount        = slicelistHeader[2];
     sliceWidth      = slicelistHeader[3];
     sliceCount      = slicelistHeader[4];
+    scoresCount     = slicelistHeader[5];
     
     size_t sliceLimit = 1 << sliceWidth;
     
+	// read in the precalculated scores	
+	//map<uint64_t, double> precalculatedScores;
+	phmap::flat_hash_map<uint64_t, double> precalculatedScores;
+
+	for (int i = 0; i < scoresCount; i++) {
+		uint64_t mask = 0;
+		double score = 0.0;
+		fread(&mask, sizeof(uint64_t), 1, fp);
+		fread(&score, sizeof(double), 1, fp);
+		
+		precalculatedScores.insert(pair<uint64_t, double>(mask, score));
+	}
+	
 	// Load in all of the off-target sites
     vector<uint64_t> offtargets(offtargetsCount);
     if (fread(offtargets.data(), sizeof(uint64_t), offtargetsCount, fp) == 0) {
@@ -210,6 +168,7 @@ int main(int argc, char **argv)
     fp = fopen(argv[2], "rb");
     vector<char> queryDataSet(fileSize);
     vector<uint64_t> querySignatures(queryCount);
+    vector<double> querySignatureScores(queryCount);
 
     if (fread(queryDataSet.data(), fileSize, 1, fp) < 1) {
         fprintf(stderr, "Failed to read in query file.\n");
@@ -226,15 +185,16 @@ int main(int argc, char **argv)
             querySignatures[i] = signature;
         }
     }
-	
+
     #pragma omp parallel
     {
         unordered_map<uint64_t, unordered_set<uint64_t>> searchResults;
 		vector<uint64_t> offtargetToggles(numOfftargetToggles);
     
+		uint64_t * offtargetTogglesTail = offtargetToggles.data() + numOfftargetToggles - 1;
+
         #pragma omp for
         for (size_t searchIdx = 0; searchIdx < querySignatures.size(); searchIdx++) {
-			uint64_t * offtargetTogglesTail = offtargetToggles.data() + numOfftargetToggles - 1;
 
 			auto searchSignature = querySignatures[searchIdx];
 
@@ -243,8 +203,8 @@ int main(int argc, char **argv)
 
             double maximum_sum = (10000.0 - threshold*100) / threshold;
 			bool checkNextSlice = true;
-
-            for (size_t i = 0; i < sliceCount; i++) { //  && checkNextSlice
+			
+            for (size_t i = 0; i < sliceCount; i++) {
                 uint64_t sliceMask = sliceLimit - 1;
                 int sliceShift = sliceWidth * i;
                 sliceMask = sliceMask << sliceShift;
@@ -259,31 +219,33 @@ int main(int argc, char **argv)
 				
                 for (size_t j = 0; j < signaturesInSlice; j++) {
                     auto signatureWithOccurrencesAndId = sliceOffset[j];
-                    auto signatureId = (uint32_t)signatureWithOccurrencesAndId;
-					auto signature = (offtargets[signatureId]);
-
-					int dist = distance(searchSignature ^ signature);
+                    auto signatureId = signatureWithOccurrencesAndId & 0xFFFFFFFFull;
 					
+					uint64_t xoredSignatures = searchSignature ^ offtargets[signatureId];
+					uint64_t evenBits = xoredSignatures & 0xAAAAAAAAAAAAAAAAull;
+					uint64_t oddBits = xoredSignatures & 0x5555555555555555ull;
+					uint64_t mismatches = (evenBits >> 1) | oddBits;
+					int dist = __builtin_popcountll(mismatches);
+
 					if (dist > 0 && dist <= maxDist) {
 						
-						// check if we've already seen this off-target
 						uint64_t seenOfftargetAlready = 0;
+						uint64_t * ptrOfftargetFlag = (offtargetTogglesTail - (signatureId / 64));
 						if (i > 0) {
-							seenOfftargetAlready = *(offtargetTogglesTail - (signatureId / 64));
-							seenOfftargetAlready = (seenOfftargetAlready >> (signatureId % 64)) & 1ULL;
+							seenOfftargetAlready = (*ptrOfftargetFlag >> (signatureId % 64)) & 1ULL;
 						}
 						
-						if (i == 0 || seenOfftargetAlready == 0) {
+						if (!seenOfftargetAlready) {
+							uint32_t occurrences = (signatureWithOccurrencesAndId >> (32));
 
-							uint32_t occurrences = (uint32_t)(signatureWithOccurrencesAndId >> (32));
-							totscore += sscore(searchSignature ^ signature) * (double)occurrences;
+							totscore += precalculatedScores[mismatches] * (double)occurrences;
 							
 							if (totscore > maximum_sum) {
 								checkNextSlice = false;
 								break;
 							}
 							
-							*(offtargetTogglesTail - (signatureId / 64)) |= (1ULL << (signatureId % 64));
+							*ptrOfftargetFlag |= (1ULL << (signatureId % 64));
 
 							numOffTargetSitesScored += occurrences;
 						}
@@ -293,17 +255,19 @@ int main(int argc, char **argv)
 				if (!checkNextSlice)
 					break;
             }
+			
+			querySignatureScores[searchIdx] = 10000.0 / (100.0 + totscore);
 
-			auto querySequence = signatureToSequence(searchSignature);
-			#pragma omp critical
-			{
-				printf("%s\t", querySequence.c_str());
-				printf("%f\n", 10000.0 / (100.0 + totscore));
-			}
 			memset(offtargetToggles.data(), 0, sizeof(uint64_t)*offtargetToggles.size());
         }
 		
     }
 	
+	for (size_t searchIdx = 0; searchIdx < querySignatures.size(); searchIdx++) {
+		auto querySequence = signatureToSequence(querySignatures[searchIdx]);
+		printf("%s\t", querySequence.c_str());
+		printf("%f\t\n", querySignatureScores[searchIdx]);
+	}
+
     return 0;
 }
