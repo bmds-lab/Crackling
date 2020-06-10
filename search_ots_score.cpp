@@ -70,7 +70,7 @@ string signatureToSequence(uint64_t signature)
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s [issltable] [query file] [max distance]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [issltable] [query file] [max distance] [score-threshold]\n", argv[0]);
         exit(1);
     }
     

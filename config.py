@@ -46,7 +46,7 @@ CONFIG = {
         'binary' : r'./search_ots_score',
         'threads' : 128,
         'score-threshold' : 75, # if score < score-threshold then reject
-        
+        'max-distance' : 4,
     },
     
     # sgRNAScorer2 config

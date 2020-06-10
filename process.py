@@ -784,17 +784,16 @@ for exonFile in exonFiles:
 
     # call the scoring method
     call(
-        ["{} \"{}\" \"{}\" \"{}\" > \"{}\"".format(
+        ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
             CONFIG['offtargetscore']['binary'],
-            #CONFIG['offtargetscore']['threads'],
             CONFIG['input']['offtarget-sites'],
             CONFIG['offtargetscore']['input'],
+            str(CONFIG['offtargetscore']['max-distance']),
             str(CONFIG['offtargetscore']['score-threshold']),
             CONFIG['offtargetscore']['output'],
         )],
         shell = True
     )
-
 
     printer('\n\n============== (End Offtarget) =============\n\n')
 
@@ -811,7 +810,7 @@ for exonFile in exonFiles:
             score = targetsScored[target23[0:20]]
             targetsData[target23]['offtargetscore'] = score
             
-            if score < CONFIG['offtargetscore']['score-threshold']:
+            if score < float(CONFIG['offtargetscore']['score-threshold']):
                 possibleTargets[target23][FLAG_IDX] = 0
                 failedCount += 1
 
