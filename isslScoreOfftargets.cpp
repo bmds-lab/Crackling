@@ -7,7 +7,7 @@ bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
 
 To compile:
 
-g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
+g++ -o isslScoreOfftargets isslScoreOfftargets.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
 
 */
 

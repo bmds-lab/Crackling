@@ -31,13 +31,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
 4. Compile the off-target scoring function. An index of off-targets is required: to prepare this, read the next section (*Off-target Indexing*).
 
     ```
-    g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+    g++ -o isslScoreOfftargets isslScoreOfftargets.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
     ```
 
 5. Run the pipeline: 
 
     ```
-    python3 process.py -c config
+    python3 Crackling.py -c config
     ```
 
 ## Off-target Indexing
@@ -47,13 +47,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
 2. Extract off-target sites:
 
     ```
-    python prepareListOfftargetSites.py <input-file> <output-file>
+    python extract-offtargets.py <input-file> <output-file>
     ```
     
     For example:
     
     ```
-    python prepareListOfftargetSites.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
+    python extract-offtargets.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
     ```
 
 3. Sort the off-target sites. 
@@ -69,7 +69,7 @@ We present Crackling, a new method for whole-genome identification of suitable C
     Compile the indexer first: 
     
     ```
-    g++ -o index_offtargetSites index_offtargetSites.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+    g++ -o isslCreateIndex isslCreateIndex.cpp -O3 -std=c++11 -fopenmp -mpopcnt
     ```
     
     Generate the index:
@@ -77,13 +77,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
     *For a 20bp sgRNA where up to four mismatches are allowed, use a slice width of eight*
     
     ```
-    ./index_offtargetSites <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
+    ./isslCreateIndex <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
     ```
     
     For example:
     
     ```
-    ./index_offtargetSites ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
+    ./isslCreateIndex ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
     ```
 
 
