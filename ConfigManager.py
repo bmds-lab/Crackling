@@ -42,13 +42,13 @@ class ConfigManager():
     
     def _attemptLoadingConfig(self):
         filename, fileext = os.path.splitext(self._configFilePath)
-        success = True
+        success = False
         
         # Check for v1.0.0 which is a Python dictionary inside a .py file
         # (which will be passed by CLI args without an extension)
         if fileext == '':
             success = self._v1_0_0_to_v1_1_0()
-
+        
         # Check for >v1.0.0, which should now be in the INI format
         if not success:
             # There's some indication that it's INI formatted, but now prove it!
@@ -57,7 +57,9 @@ class ConfigManager():
         return success
 
     def _v1_0_0_to_v1_1_0(self):
-    
+        # convert the Python dict config format, which has been deprecated,
+        # to the new method using ConfigParser.
+        
         # begin by checking if the supplied file is from Version 1.0.0
         try:
             import importlib
@@ -148,7 +150,6 @@ class ConfigManager():
         try:
             with open(self._configFilePath, 'r') as fp:
                 self._ConfigParser.read_file(fp)
-            print(self._ConfigParser.write(sys.stdout))
         except:
             return False
         return True

@@ -122,7 +122,7 @@ def printer(stringFormat):
 ##  or directory of files          ##
 #####################################
 
-def Crackling(CONFIG):
+def Crackling(configMngr):
     totalSizeBytes = configMngr.getDatasetSizeBytes()
     completedSizeBytes = 0
 
@@ -132,6 +132,9 @@ def Crackling(CONFIG):
     lastRunTimeSec = 0
     lastScaffoldSizeBytes = 0
     totalRunTimeSec = 0
+    
+    printer('Crackling is starting...')
+    
     for exonFilePath in configMngr.getIterFilesToProcess():
         ###################################
         ##        Begin this run         ##
@@ -155,16 +158,12 @@ def Crackling(CONFIG):
 
         lastScaffoldSizeBytes = os.path.getsize(exonFilePath)
 
-        if os.path.isfile(CONFIG['output']['file']):
-            printer('{} already processed, skipping...'.format(PROCESS_CODE))
-            exonFileCounter += 1
-            completedSizeBytes += lastScaffoldSizeBytes
-            print('-------------------------------------')
-            print('-------------------------------------')
-            print('-------------------------------------')
-            print('-------------------------------------')
-            print('-------------------------------------')
-            #continue
+        #if os.path.isfile(configMngr['output']['file']):
+        #    printer('{} already processed, skipping...'.format(PROCESS_CODE))
+        #    exonFileCounter += 1
+        #    completedSizeBytes += lastScaffoldSizeBytes
+        #    print('-------------------------------------\n'*5)
+        #    continue
 
         completedSizeBytes += lastScaffoldSizeBytes
         
@@ -227,7 +226,7 @@ def Crackling(CONFIG):
         FLAGS.append('passedTTTT')
         FLAG_IDX += 1
 
-        if (CONFIG['consensus']['mm10db']):
+        if (configMngr['consensus'].getboolean('mm10db')):
             printer('Removing all targets that contain TTTT.')
 
             failedCount = 0
@@ -248,7 +247,7 @@ def Crackling(CONFIG):
         FLAGS.append('passedAT2065')
         FLAG_IDX += 1
 
-        if (CONFIG['consensus']['mm10db']):
+        if (configMngr['consensus'].getboolean('mm10db')):
             printer('Calculating AT 20-65.')
 
             failedCount = 0
@@ -271,7 +270,7 @@ def Crackling(CONFIG):
         FLAGS.append('passedG20')
         FLAG_IDX += 1
 
-        if (CONFIG['consensus']['CHOPCHOP']):
+        if (configMngr['consensus'].getboolean('CHOPCHOP')):
             printer('Check for G20.')
 
             failedCount = 0
@@ -294,7 +293,7 @@ def Crackling(CONFIG):
         FLAGS.append('passedSecondaryStructure')
         FLAG_IDX += 1
 
-        if (CONFIG['consensus']['mm10db']):
+        if (configMngr['consensus'].getboolean('mm10db')):
 
             printer('Secondary structure analysis.')
 
@@ -303,7 +302,7 @@ def Crackling(CONFIG):
             pattern_RNAenergy = r"\s\((.+)\)"
 
             call(
-                ["rm -f \"{}\"".format(CONFIG['rnafold']['output'])], 
+                ["rm -f \"{}\"".format(configMngr['rnafold']['output'])], 
                 shell=True
             )
 
@@ -311,7 +310,7 @@ def Crackling(CONFIG):
 
 
             testedCount = 0
-            with open(CONFIG['rnafold']['input'], 'w+') as fRnaInput:
+            with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
                 for target23 in possibleTargets:
                 
                     
@@ -338,10 +337,10 @@ def Crackling(CONFIG):
 
             call(
                 "{} --noPS -j{} -i \"{}\" >> \"{}\"".format(
-                    CONFIG['rnafold']['binary'],
-                    CONFIG['rnafold']['threads'],
-                    CONFIG['rnafold']['input'],
-                    CONFIG['rnafold']['output']
+                    configMngr['rnafold']['binary'],
+                    configMngr['rnafold']['threads'],
+                    configMngr['rnafold']['input'],
+                    configMngr['rnafold']['output']
                 ), 
                 shell=True
             )
@@ -353,7 +352,7 @@ def Crackling(CONFIG):
             printer('\tStarting to process the RNAfold results.')
 
             RNA_structures = None
-            with open(CONFIG['rnafold']['output'], 'r') as fRnaOutput:
+            with open(configMngr['rnafold']['output'], 'r') as fRnaOutput:
                 RNA_structures = fRnaOutput.readlines()
 
             i=0
@@ -389,14 +388,14 @@ def Crackling(CONFIG):
                     match_structure = re.search(pattern_RNAstructure, L2)
                     if match_structure:
                         energy = ast.literal_eval(match_structure.group(1))
-                        if energy < float(CONFIG['rnafold']['low_energy_threshold']):
+                        if energy < float(configMngr['rnafold']['low_energy_threshold']):
                             possibleTargets[transToDNA(target23)][FLAG_IDX] = 0 # reject due to this reason
                             failedCount += 1
                     else:
                         match_energy = re.search(pattern_RNAenergy, L2)
                         if match_energy:
                             energy = ast.literal_eval(match_energy.group(1))
-                            if energy <= float(CONFIG['rnafold']['high_energy_threshold']):
+                            if energy <= float(configMngr['rnafold']['high_energy_threshold']):
                                 possibleTargets[transToDNA(target23)][FLAG_IDX] = 0 # reject due to this reason
                             failedCount += 1
                     i+=1
@@ -412,7 +411,7 @@ def Crackling(CONFIG):
         FLAGS.append('acceptedByMm10db')
         FLAG_IDX += 1
 
-        if (CONFIG['consensus']['mm10db']):
+        if (configMngr['consensus'].getboolean('mm10db')):
             printer('Calculating mm10db result.')
 
             acceptedCount = 0
@@ -449,10 +448,10 @@ def Crackling(CONFIG):
         FLAGS.append('acceptedBySgRnaScorer')
         FLAG_IDX += 1
 
-        if (CONFIG['consensus']['sgRNAScorer2']):
+        if (configMngr['consensus'].getboolean('sgRNAScorer2')):
             printer('Calculating sgRNAScorer2 scores.')
 
-            clfLinear = joblib.load(CONFIG['sgrnascorer2']['model'])
+            clfLinear = joblib.load(configMngr['sgrnascorer2']['model'])
 
             failedCount = 0
             testedCount = 0
@@ -467,7 +466,7 @@ def Crackling(CONFIG):
                 currentConsensus = ((int)(possibleTargets[target23][FLAGS.index('acceptedByMm10db')] == 1) +     # mm10db accepted
                     (int)(possibleTargets[target23][FLAGS.index('passedG20')] == 1))              # chopchop-g20 accepted
                 
-                if (currentConsensus == (int(CONFIG['consensus']['n']) - 1)):
+                if (currentConsensus == (int(configMngr['consensus']['n']) - 1)):
                     sequence = target23.upper()
                     entryList = []
                     testedCount += 1
@@ -486,7 +485,7 @@ def Crackling(CONFIG):
 
                     targetsData[target23]['sgrnascorer2score'] = score
 
-                    if float(score) < float(float(CONFIG['sgrnascorer2']['score-threshold'])):
+                    if float(score) < float(float(configMngr['sgrnascorer2']['score-threshold'])):
                         possibleTargets[target23][FLAG_IDX] = 0
                         failedCount += 1
                 else:
@@ -528,14 +527,14 @@ def Crackling(CONFIG):
 
         tempTargetDict_offset = {}
         testedCount = 0
-        with open(CONFIG['bowtie2']['input'], 'w') as fWriteBowtie:
+        with open(configMngr['bowtie2']['input'], 'w') as fWriteBowtie:
             for target23 in possibleTargets:
                 
                 targetsData[target23]['chr'] = None
                 targetsData[target23]['start'] = None
                 targetsData[target23]['end'] = None
             
-                if possibleTargets[target23][FLAGS.index('consensusCount')] >= int(CONFIG['consensus']['n']):
+                if possibleTargets[target23][FLAGS.index('consensusCount')] >= int(configMngr['consensus']['n']):
                     testedCount += 1
                     similarTargets = [
                         target23[0:20] + "AGG", 
@@ -557,18 +556,18 @@ def Crackling(CONFIG):
         printer('\n\n=========== (Start Bowtie2) =========')
 
         call("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
-           CONFIG['bowtie2']['binary'],
-           CONFIG['input']['bowtie2-index'],
-           CONFIG['bowtie2']['threads'],
-           CONFIG['bowtie2']['input'],
-           CONFIG['bowtie2']['output'])
+           configMngr['bowtie2']['binary'],
+           configMngr['input']['bowtie2-index'],
+           configMngr['bowtie2']['threads'],
+           configMngr['bowtie2']['input'],
+           configMngr['bowtie2']['output'])
         ,shell=True)       
 
         printer('\n\n============ (End Bowtie2) ==========\n\n')
 
         printer('\tStarting to process the Bowtie results.')
 
-        inFile = open(CONFIG['bowtie2']['output'],'r')
+        inFile = open(configMngr['bowtie2']['output'],'r')
         bowtieLines = inFile.readlines()
         inFile.close()
 
@@ -648,11 +647,11 @@ def Crackling(CONFIG):
 
         # prepare the list of candidate guides to score
         testedCount = 0
-        with open(CONFIG['offtargetscore']['input'], 'w') as fTargetsToScore:
+        with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
             for target23 in possibleTargets:
                 targetsData[target23]['offtargetscore'] = None
                 
-                if possibleTargets[target23][FLAGS.index('consensusCount')] >= int(CONFIG['consensus']['n']) and \
+                if possibleTargets[target23][FLAGS.index('consensusCount')] >= int(configMngr['consensus']['n']) and \
                     possibleTargets[target23][FLAGS.index('passedBowtie')] == 1:
                     target = target23[0:20]
                     fTargetsToScore.write(target+"\n")
@@ -667,12 +666,12 @@ def Crackling(CONFIG):
         # call the scoring method
         call(
             ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
-                CONFIG['offtargetscore']['binary'],
-                CONFIG['input']['offtarget-sites'],
-                CONFIG['offtargetscore']['input'],
-                str(CONFIG['offtargetscore']['max-distance']),
-                str(CONFIG['offtargetscore']['score-threshold']),
-                CONFIG['offtargetscore']['output'],
+                configMngr['offtargetscore']['binary'],
+                configMngr['input']['offtarget-sites'],
+                configMngr['offtargetscore']['input'],
+                str(configMngr['offtargetscore']['max-distance']),
+                str(configMngr['offtargetscore']['score-threshold']),
+                configMngr['offtargetscore']['output'],
             )],
             shell = True
         )
@@ -680,7 +679,7 @@ def Crackling(CONFIG):
         printer('\n\n============== (End Offtarget) =============\n\n')
 
         targetsScored = {}
-        with open(CONFIG['offtargetscore']['output'], 'r') as fTargetsScored:
+        with open(configMngr['offtargetscore']['output'], 'r') as fTargetsScored:
             for targetScored in [x.split('\t') for x in fTargetsScored.readlines()]:
                 if len(targetScored) == 2:
                     targetsScored[targetScored[0]] = float(targetScored[1].strip())
@@ -692,7 +691,7 @@ def Crackling(CONFIG):
                 score = targetsScored[target23[0:20]]
                 targetsData[target23]['offtargetscore'] = score
                 
-                if score < float(CONFIG['offtargetscore']['score-threshold']):
+                if score < float(configMngr['offtargetscore']['score-threshold']):
                     possibleTargets[target23][FLAG_IDX] = 0
                     failedCount += 1
 
@@ -707,10 +706,10 @@ def Crackling(CONFIG):
         printer('Writing results to file.')
 
         # Write guides to file. Include scores etc.
-        with open(CONFIG['output']['file'], 'w+') as fOpen:
+        with open(configMngr['output']['file'], 'w+') as fOpen:
             
             fOpen.write('{}\n'.format(
-                        CONFIG['output']['delimiter'].join(
+                        configMngr['output']['delimiter'].join(
                             ['seq'] +
                             FLAGS +
                             [
@@ -755,7 +754,7 @@ def Crackling(CONFIG):
                 output.append(targetsData[target23]['energy'])
                 
                 fOpen.write('{}\n'.format(
-                        CONFIG['output']['delimiter'].join(map(str, output))
+                        configMngr['output']['delimiter'].join(map(str, output))
                     )
                 )
 
@@ -764,12 +763,12 @@ def Crackling(CONFIG):
         ##              Clean up               ##
         #########################################
         printer('Clearning auxiliary files')
-        os.remove(CONFIG['rnafold']['input'])
-        os.remove(CONFIG['rnafold']['output'])
-        os.remove(CONFIG['offtargetscore']['input'])
-        os.remove(CONFIG['offtargetscore']['output'])
-        os.remove(CONFIG['bowtie2']['input'])
-        os.remove(CONFIG['bowtie2']['output'])
+        os.remove(configMngr['rnafold']['input'])
+        os.remove(configMngr['rnafold']['output'])
+        os.remove(configMngr['offtargetscore']['input'])
+        os.remove(configMngr['offtargetscore']['output'])
+        os.remove(configMngr['bowtie2']['input'])
+        os.remove(configMngr['bowtie2']['output'])
 
 
         #########################################
@@ -795,10 +794,10 @@ if __name__ == '__main__':
     parser.add_argument('-c', help='File to process', default=None, required=True)
     args = parser.parse_args()
 
-    configMngr = ConfigManager(args.c, lambda x : print(f'ConfigMngr says: {x}'))
+    configMngr = ConfigManager(args.c, lambda x : print(f'configMngr says: {x}'))
 
     if not configMngr.isConfigured():
-        print('Something went wrong with reading the configuration.')
+        print('Something went wrong with reading the configMngruration.')
         exit()
     else:
         Crackling(configMngr)
