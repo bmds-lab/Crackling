@@ -3,12 +3,8 @@ import configparser, os, shutil, sys
 
 class ConfigManager():
     def __init__(self, filePath, messenger):
-        
         # The configuration
         self._configFilePath = filePath
-
-        # Has the configuration manager successfully initialised and is ready to pass to Crackling?
-        self._isConfigured = False
 
         # The name of the current configuration
         self._fallbackName = strftime("%Y%m%d%H%M%S", localtime())
@@ -16,11 +12,8 @@ class ConfigManager():
         # A list of files that Crackling will process
         self._filesToProcess = []
 
-        # A list of error/warning messages
-        self._messages = []
-
         # The ConfigParser instance
-        self._ConfigParser = configparser.ConfigParser()
+        self._ConfigParser = configparser.ConfigParser(interpolation=None)
 
         # A method, passed by reference, to send messages back to the "creator"
         self._sendMsg = messenger
@@ -31,12 +24,31 @@ class ConfigManager():
         if self._isConfigured:
             self._createListOfFilesToAnalyse()
     
+        # now that we have initially set things up, we should override __setattr__
+        #self.__setattr__ = self._setattr_
+    
     def __getitem__(self, arg):
+        #if self._isConfigured:
+        #    configParserSetItem = self._ConfigParser.__getitem__(arg)
+        #    self._isConfigured = self._validateConfig()
+        #    if not self._isConfigured:
+        #        self._sendMsg('Configuration now invalid!')
+        #else:
+        #    self._sendMsg('Configuration manager not ready to take values')
+        #    exit()
+    
         return self._ConfigParser.__getitem__(arg)
-    
-    def _printer(self, str):
-        print(f'ConfigManager: {str}')
-    
+    ### 
+    ### def _setattr_(self, key, val):
+    ###     self._sendMsg('hello2')
+    ###     if self._isConfigured:
+    ###         #configParserSetItem = self._ConfigParser.__setattr__(key, val)
+    ###         #self._isConfigured = self._validateConfig()
+    ###         if not self._isConfigured:
+    ###             self._sendMsg('Configuration now invalid!')
+    ###     else:
+    ###         self._sendMsg('Configuration manager not ready to take values')
+
     def _sendMsg(self, str):
         self._sendMsg(str)
     
@@ -53,6 +65,8 @@ class ConfigManager():
         if not success:
             # There's some indication that it's INI formatted, but now prove it!
             success = self._read_v1_1_0()
+
+        success = self._validateConfig()
 
         return success
 
@@ -112,19 +126,7 @@ class ConfigManager():
                 self._sendMsg('Your v1.0.0 configuration is invalid. We suggest updating to the new format, defined as per v1.1.0. See the GitHub repository for a sample configuration file. https://github.com/bmds-lab/Crackling')
                 return False
         
-            # check the binaries are executable
-            passed = True
-            for x in [
-                CONFIG['offtargetscore']['binary'],
-                CONFIG['bowtie2']['binary'],
-                CONFIG['rnafold']['binary']
-            ]:
-                if not shutil.which(x):
-                    passed = False
-                    self._sendMsg(f'This binary cannot be executed: {x}')
-            if not passed:
-                return False
-        
+            
             # Ok, everything looks good, lets convert to the new config format
             # We can't use the ConfigParser.read_dict(..) method because the original Dict-formatted
             # config is not formatted correctly to be converted to INI, sigh
@@ -134,6 +136,8 @@ class ConfigManager():
                 if isinstance(CONFIG[firstLayer], dict):
                     self._ConfigParser.add_section(firstLayer)
                     for secondLayer in CONFIG[firstLayer]:
+                        if secondLayer == 'delimiter':
+                            secondLayer = f'"{secondLayer}"'
                         self._ConfigParser.set(firstLayer, secondLayer, str(CONFIG[firstLayer][secondLayer]))
                 else:
                     self._ConfigParser.set('general', firstLayer, CONFIG[firstLayer])
@@ -150,16 +154,36 @@ class ConfigManager():
         try:
             with open(self._configFilePath, 'r') as fp:
                 self._ConfigParser.read_file(fp)
+            self._ConfigParser['output']['delimiter'] = char(self._ConfigParser['output']['delimiter'])
         except:
             return False
         return True
 
-    def getConfigName(self):
-        if self._isConfigured:
-            return self._ConfigParser['general']['name']
-        else:
-            return self._fallbackName
+    def _validateConfig(self):
+        # this method should only be ran once the config has been loaded in
+        passed = True
     
+        # check the binaries are executable
+        for x in [
+            self._ConfigParser['offtargetscore']['binary'],
+            self._ConfigParser['bowtie2']['binary'],
+            self._ConfigParser['rnafold']['binary']
+        ]:
+            if not shutil.which(x):
+                passed = False
+                self._sendMsg(f'This binary cannot be executed: {x}')
+        
+        # check that the 'n' value for the consensus is less than or equal to
+        # the number of tools being used
+        numToolsInConsesus = self.getNumberToolsInConsensus()
+        n = int(self._ConfigParser['consensus']['n'])
+        
+        if n > numToolsInConsesus:
+            passed = False
+            self._sendMsg(f'The consensus approach is incorrectly set. You have specified {numToolsInConsesus} to be ran but the n-value is {n}. Change n to be <= {numToolsInConsesus}.')
+            
+        return passed
+
     def _createListOfFilesToAnalyse(self):
         # If the input sequence is a directory:
         if os.path.isdir(self._ConfigParser['input']['exon-sequences']):
@@ -175,10 +199,27 @@ class ConfigManager():
         else:
             self._filesToProcess = glob.glob(self._ConfigParser['input']['exon-sequences'])          
 
+    def getConfigName(self):
+        if self._isConfigured:
+            return self._ConfigParser['general']['name']
+        else:
+            return self._fallbackName
+
+    def getNumberToolsInConsensus(self):
+        # theres a bug in ConfigParser that makes this messy.
+        # it cannot be fixed: https://bugs.python.org/issue10387
+        return sum(
+            map(lambda x : x == 'True', [
+                    self._ConfigParser['consensus']['mm10db'],
+                    self._ConfigParser['consensus']['sgrnascorer2'],
+                    self._ConfigParser['consensus']['chopchop']
+                ]
+            )
+        )
+
     def getDatasetSizeBytes(self):
         if self.isConfigured():
             return sum([os.path.getsize(x) for x in self._filesToProcess])
-        pass
 
     def isConfigured(self):
         return self._isConfigured
@@ -213,6 +254,7 @@ class ConfigManager():
             )
         )
 
+    
 if __name__ == '__main__':
     print('Cracking: the configuration manager cannot be called independently.')
     print('Exiting...')

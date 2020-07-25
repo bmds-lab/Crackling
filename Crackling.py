@@ -12,7 +12,7 @@ It implements our consensus approach where at least two of the tools need to be
 in agreeance for the guide to be accepted. See references list below.
 
 Config:
-    - See config.py
+    - See config.ini
 
 References:
     - https://github.com/bmds-lab/mm10db
@@ -21,9 +21,9 @@ References:
     
     - https://crispr.med.harvard.edu/sgRNAScorer/
     
-    - Bradford, J., Perrin, D. (2019). Improving CRISPR Guide Design with Consensus Approaches.
+    - Bradford, J., & Perrin, D. (2019). Improving CRISPR guide design with consensus approaches. BMC genomics, 20(9), 931.
     
-    - Bradford, J., & Perrin, D. (2019). A benchmark of computational CRISPR-Cas9 guide design methods. PLoS computational biology, 15(8), e1007274.
+    - Bradford, J., & Perrin, D. (2019). A benchmark of computational CRISPR-Cas9 guide design methods. PLoS Computational Biology, 15(8), e1007274.
     
     - Chari, R., Yeo, N. C., Chavez, A., & Church, G. M. (2017). SgRNA Scorer 2.0: A Species-Independent Model to Predict CRISPR/Cas9 Activity. ACS Synthetic Biology, 6(5), 902-904. https://doi.org/10.1021/acssynbio.6b00343
     
@@ -48,13 +48,9 @@ Output:
 '''
 
 import sys, argparse, os, re, joblib, timeit, ast, glob, string, random, json, time, glob
-from collections import defaultdict
 from sklearn.svm import SVC
-from Bio import SeqIO
-from Bio.Seq import Seq
 from subprocess import call
 from time import localtime, strftime, gmtime
-from math import log
 
 from ConfigManager import ConfigManager
     
@@ -88,6 +84,11 @@ encoding = {
     'D' : '1101',
     'N' : '1111'
 }
+
+CODE_UNTESTED = "-"
+CODE_ACCEPTED = 1
+CODE_REJECT = 0
+CODE_UNTESTED = '?'
 
 # Function that returns the reverse-complement of a given sequence
 def rc(dna):
@@ -128,14 +129,14 @@ def Crackling(configMngr):
 
     sys.stdout = configMngr.getLogMethod()
 
-    exonFileCounter = 0   
+    seqFileCounter = 0   
     lastRunTimeSec = 0
     lastScaffoldSizeBytes = 0
     totalRunTimeSec = 0
     
     printer('Crackling is starting...')
     
-    for exonFilePath in configMngr.getIterFilesToProcess():
+    for seqFilePath in configMngr.getIterFilesToProcess():
         ###################################
         ##        Begin this run         ##
         ###################################
@@ -156,28 +157,28 @@ def Crackling(configMngr):
             round((float(completedSizeBytes) / float(totalSizeBytes) * 100.0), 3)
         ))
 
-        lastScaffoldSizeBytes = os.path.getsize(exonFilePath)
+        lastScaffoldSizeBytes = os.path.getsize(seqFilePath)
 
         #if os.path.isfile(configMngr['output']['file']):
         #    printer('{} already processed, skipping...'.format(PROCESS_CODE))
-        #    exonFileCounter += 1
+        #    seqFileCounter += 1
         #    completedSizeBytes += lastScaffoldSizeBytes
         #    print('-------------------------------------\n'*5)
         #    continue
 
         completedSizeBytes += lastScaffoldSizeBytes
         
-        exonFileCounter += 1
+        seqFileCounter += 1
 
 
 
         ###################################
         ##   Processing the input file   ##
         ###################################
-        FLAGS.append('exonCount')
+        FLAGS.append('seqCount')
 
         printer('Identifying possible target sites in: {}'.format(
-            exonFilePath
+            seqFilePath
         ))
 
         possibleTargets = {}
@@ -185,35 +186,25 @@ def Crackling(configMngr):
         pattern_forward = r"(?=([ATCG]{21}GG))"
         pattern_reverse = r"(?=(CC[ACGT]{21}))"
 
-        with open(exonFilePath, 'r') as inFile:
-            exonLineNumber = 0
-
-            for line_exon in inFile:
-                if line_exon[0] == '>':
+        with open(seqFilePath, 'r') as inFile:
+            for line_seq in inFile:
+                if line_seq[0] == '>':
                     continue
                     
-                exonLineNumber += 1
-                match_exon = re.findall(pattern_forward, line_exon)
-                
-                if match_exon:
-                    for i in range(0, len(match_exon)):
-                        target23 = match_exon[i]
-                        if target23 in possibleTargets:
-                            possibleTargets[target23][FLAG_IDX] += 1
-                        else:
-                            possibleTargets[target23] = [1] * NUM_FLAGS
-                            targetsData[target23] = {}
-
-                # we parse the line and look for reverse sequences
-                match_exon = re.findall(pattern_reverse,line_exon)
-                if match_exon:
-                    for i in range(0,len(match_exon)):
-                        target23 = rc(match_exon[i])
-                        if target23 in possibleTargets:
-                            possibleTargets[target23][FLAG_IDX] += 1
-                        else:
-                            possibleTargets[target23] = [1] * NUM_FLAGS
-                            targetsData[target23] = {}
+                # once for forward, once for reverse
+                for pattern, seqModifier in [
+                    [pattern_forward, lambda x : x], 
+                    [pattern_reverse, lambda x : rc(x)]
+                ]:
+                    match_seq = re.findall(pattern, line_seq)
+                    if match_seq:
+                        for i in range(0, len(match_seq)):
+                            target23 = seqModifier(match_seq[i])
+                            if target23 in possibleTargets:
+                                possibleTargets[target23][FLAG_IDX] += 1
+                            else:
+                                possibleTargets[target23] = [0] + [CODE_UNTESTED] * (NUM_FLAGS - 1)
+                                targetsData[target23] = {}
 
 
         printer('Identified {} possible target sites.'.format(
@@ -232,8 +223,10 @@ def Crackling(configMngr):
             failedCount = 0
             for target23 in possibleTargets:
                 if "TTTT" in target23:
-                    possibleTargets[target23][FLAG_IDX] = 0 # reject due to this reason
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
                     failedCount += 1
+                else:
+                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
 
             printer('\t{} of {} failed here.'.format(
                 failedCount,
@@ -254,8 +247,10 @@ def Crackling(configMngr):
             for target23 in possibleTargets:
                 AT = AT_percentage(target23[0:20])
                 if AT < 20 or AT > 65:
-                    possibleTargets[target23][FLAG_IDX] = 0 # reject due to this reason
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
                     failedCount += 1
+                else:
+                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
                 
                 targetsData[target23]['AT'] = AT
 
@@ -263,7 +258,7 @@ def Crackling(configMngr):
                 failedCount,
                 len(possibleTargets)
             ))
-            
+           
         #########################################
         ##                 G20                 ##
         #########################################
@@ -276,8 +271,10 @@ def Crackling(configMngr):
             failedCount = 0
             for target23 in possibleTargets:
                 if target23[19] != 'G':
-                    possibleTargets[target23][FLAG_IDX] = 0 # reject due to this reason
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
                     failedCount += 1
+                else:
+                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
 
             printer('\t{} of {} failed here.'.format(
                 failedCount,
@@ -319,7 +316,9 @@ def Crackling(configMngr):
                     if  not ( 
                             (target23[-2:] == 'GG' and target23[0] == 'T') or 
                             (target23[:2] == 'CC' and target23[-1] == 'A')
-                        ) and possibleTargets[target23][FLAGS.index('passedAT2065')] == 1 and possibleTargets[target23][FLAGS.index('passedTTTT')] == 1:
+                        ) and \
+                        possibleTargets[target23][FLAGS.index('passedAT2065')] == 1 and \
+                        possibleTargets[target23][FLAGS.index('passedTTTT')] == 1:
                         fRnaInput.write(
                             "G{}{}\n".format(
                                 target23[1:20], 
@@ -389,22 +388,26 @@ def Crackling(configMngr):
                     if match_structure:
                         energy = ast.literal_eval(match_structure.group(1))
                         if energy < float(configMngr['rnafold']['low_energy_threshold']):
-                            possibleTargets[transToDNA(target23)][FLAG_IDX] = 0 # reject due to this reason
+                            possibleTargets[transToDNA(target23)][FLAG_IDX] = CODE_REJECT # reject due to this reason
                             failedCount += 1
+                        else:
+                            possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
                     else:
                         match_energy = re.search(pattern_RNAenergy, L2)
                         if match_energy:
                             energy = ast.literal_eval(match_energy.group(1))
                             if energy <= float(configMngr['rnafold']['high_energy_threshold']):
-                                possibleTargets[transToDNA(target23)][FLAG_IDX] = 0 # reject due to this reason
-                            failedCount += 1
+                                possibleTargets[transToDNA(target23)][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                                failedCount += 1
+                            else:
+                                possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
                     i+=1
 
             printer('\t{} of {} failed here.'.format(
                 failedCount,
                 testedCount
             ))
-                
+        
         #########################################
         ##         Calc mm10db result          ##
         ######################################### 
@@ -426,9 +429,10 @@ def Crackling(configMngr):
                     ((target23[-2:] == 'GG' and target23[0] == 'T') or (target23[:2] == 'CC' and target23[-1] == 'A'))        # accepted when tested on SS
                 ):
                     # mm10db rejected the guide
-                    possibleTargets[target23][FLAG_IDX] = 0
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
                     failedCount += 1
                 else:
+                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
                     acceptedCount += 1
 
             printer('\t{} accepted.'.format(
@@ -440,8 +444,7 @@ def Crackling(configMngr):
             ))
                 
             del acceptedCount
-            
-                
+                 
         #########################################
         ##         sgRNAScorer 2.0 model       ##
         ######################################### 
@@ -463,9 +466,11 @@ def Crackling(configMngr):
                 # if it is only one test away from passing (threshold - 1) then use the sgRNAScorer2 model
                 # if it has already passed the threshold then don't bother
                 
-                currentConsensus = ((int)(possibleTargets[target23][FLAGS.index('acceptedByMm10db')] == 1) +     # mm10db accepted
-                    (int)(possibleTargets[target23][FLAGS.index('passedG20')] == 1))              # chopchop-g20 accepted
+                # how many tools were potentially ran?
+                consensusToolsCount = configMngr.getNumberToolsInConsensus()
                 
+                currentConsensus = ((int)(possibleTargets[target23][FLAGS.index('acceptedByMm10db')] == 1) +    # mm10db accepted
+                    (int)(possibleTargets[target23][FLAGS.index('passedG20')] == 1))                            # chopchop-g20 accepted
                 if (currentConsensus == (int(configMngr['consensus']['n']) - 1)):
                     sequence = target23.upper()
                     entryList = []
@@ -486,8 +491,11 @@ def Crackling(configMngr):
                     targetsData[target23]['sgrnascorer2score'] = score
 
                     if float(score) < float(float(configMngr['sgrnascorer2']['score-threshold'])):
-                        possibleTargets[target23][FLAG_IDX] = 0
+                        possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
                         failedCount += 1
+                    else:
+                        possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                        
                 else:
                     targetsData[target23]['sgrnascorer2score'] = None
               
@@ -617,9 +625,11 @@ def Crackling(configMngr):
 
             # if that number is at least two, the target is removed
             if nb_occurences > 1:
-                possibleTargets[seq][FLAG_IDX] = 0
+                possibleTargets[seq][FLAG_IDX] = CODE_REJECT # reject due to this reason
                 failedCount += 1
-
+            else:
+                possibleTargets[seq][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                
             # we continue with the next target
             i+=8
 
@@ -632,8 +642,6 @@ def Crackling(configMngr):
         ))
 
 
-
-           
         #########################################
         ##      Begin off-target scoring       ##
         #########################################   
@@ -687,13 +695,14 @@ def Crackling(configMngr):
         failedCount = 0
         for target23 in possibleTargets:
             if target23[0:20] in targetsScored:
-            
                 score = targetsScored[target23[0:20]]
                 targetsData[target23]['offtargetscore'] = score
                 
                 if score < float(configMngr['offtargetscore']['score-threshold']):
-                    possibleTargets[target23][FLAG_IDX] = 0
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
                     failedCount += 1
+                else:
+                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
 
         printer('\t{} of {} failed here.'.format(
             failedCount,
@@ -727,31 +736,20 @@ def Crackling(configMngr):
                 )
             
             for target23 in possibleTargets:
-                output = []
-
-                # seq
-                output.append(target23)
-                
-                # all the flags
-                output += possibleTargets[target23]
-                
-                # position in genome
-                output.append(targetsData[target23]['start'])
-                output.append(targetsData[target23]['end'])
-                
-                # scaffold number
-                output.append(targetsData[target23]['chr'])
-
-                # offtarget score
-                output.append(targetsData[target23]['offtargetscore'])
-                
-                # sgrnascorer2 score
-                output.append(targetsData[target23]['sgrnascorer2score'])
-                        
-                # secondary structure
-                output.append(targetsData[target23]['L1'])
-                output.append(targetsData[target23]['structure'])
-                output.append(targetsData[target23]['energy'])
+                output = [
+                    target23
+                ] + \
+                    possibleTargets[target23] + \
+                [
+                    targetsData[target23].get('start', CODE_UNTESTED),
+                    targetsData[target23].get('end', CODE_UNTESTED),
+                    targetsData[target23].get('chr', CODE_UNTESTED),
+                    targetsData[target23].get('offtargetscore', CODE_UNTESTED),
+                    targetsData[target23].get('sgrnascorer2score', CODE_UNTESTED),
+                    targetsData[target23].get('L1', CODE_UNTESTED),
+                    targetsData[target23].get('structure', CODE_UNTESTED),
+                    targetsData[target23].get('energy', CODE_UNTESTED),
+                ]
                 
                 fOpen.write('{}\n'.format(
                         configMngr['output']['delimiter'].join(map(str, output))
@@ -763,12 +761,19 @@ def Crackling(configMngr):
         ##              Clean up               ##
         #########################################
         printer('Clearning auxiliary files')
-        os.remove(configMngr['rnafold']['input'])
-        os.remove(configMngr['rnafold']['output'])
-        os.remove(configMngr['offtargetscore']['input'])
-        os.remove(configMngr['offtargetscore']['output'])
-        os.remove(configMngr['bowtie2']['input'])
-        os.remove(configMngr['bowtie2']['output'])
+        for f in [
+            configMngr['rnafold']['input'],
+            configMngr['rnafold']['output'],
+            configMngr['offtargetscore']['input'],
+            configMngr['offtargetscore']['output'],
+            configMngr['bowtie2']['input'],
+            configMngr['bowtie2']['output'],
+        ]:
+            try:
+                os.remove(f)
+            except:
+                pass
+       
 
 
         #########################################
