@@ -47,7 +47,7 @@ Output:
 
 '''
 
-import sys, argparse, os, re, joblib, timeit, ast, glob, string, random, json, time, glob
+import sys, argparse, os, re, joblib, timeit, ast, glob, string, random, json, time, glob, csv
 from sklearn.svm import SVC
 from subprocess import call
 from time import localtime, strftime, gmtime
@@ -85,10 +85,9 @@ encoding = {
     'N' : '1111'
 }
 
-CODE_UNTESTED = "-"
 CODE_ACCEPTED = 1
-CODE_REJECT = 0
-CODE_UNTESTED = '?'
+CODE_REJECTED = 0
+CODE_UNTESTED = "?"
 
 # Function that returns the reverse-complement of a given sequence
 def rc(dna):
@@ -113,11 +112,16 @@ def AT_percentage(seq):
 
     
 def printer(stringFormat):
-    print('{}:\t{}\n'.format(
+    print('>>>> {}:\t{}\n'.format(
         strftime("%H:%M:%S", localtime()),
         stringFormat
     ))
-    
+
+def caller(*args, **kwargs):
+    printer(f"| Calling: {args}")
+    call(*args, **kwargs)
+    printer(f"| Finished")
+ 
 #####################################
 ##  Begin analysis of single file  ##
 ##  or directory of files          ##
@@ -158,13 +162,6 @@ def Crackling(configMngr):
         ))
 
         lastScaffoldSizeBytes = os.path.getsize(seqFilePath)
-
-        #if os.path.isfile(configMngr['output']['file']):
-        #    printer('{} already processed, skipping...'.format(PROCESS_CODE))
-        #    seqFileCounter += 1
-        #    completedSizeBytes += lastScaffoldSizeBytes
-        #    print('-------------------------------------\n'*5)
-        #    continue
 
         completedSizeBytes += lastScaffoldSizeBytes
         
@@ -223,7 +220,7 @@ def Crackling(configMngr):
             failedCount = 0
             for target23 in possibleTargets:
                 if "TTTT" in target23:
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
                     possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
@@ -247,7 +244,7 @@ def Crackling(configMngr):
             for target23 in possibleTargets:
                 AT = AT_percentage(target23[0:20])
                 if AT < 20 or AT > 65:
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
                     possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
@@ -271,7 +268,7 @@ def Crackling(configMngr):
             failedCount = 0
             for target23 in possibleTargets:
                 if target23[19] != 'G':
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
                     possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
@@ -298,7 +295,7 @@ def Crackling(configMngr):
             pattern_RNAstructure = r".{28}\({4}\.{4}\){4}\.{3}\){4}.{21}\({4}\.{4}\){4}\({7}\.{3}\){7}\.{3}\s\((.+)\)"
             pattern_RNAenergy = r"\s\((.+)\)"
 
-            call(
+            caller(
                 ["rm -f \"{}\"".format(configMngr['rnafold']['output'])], 
                 shell=True
             )
@@ -309,8 +306,6 @@ def Crackling(configMngr):
             testedCount = 0
             with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
                 for target23 in possibleTargets:
-                
-                    
                     # we don't want guides on + starting with T, or on - ending with A
                     # and only things that have passed everything else so far
                     if  not ( 
@@ -332,9 +327,7 @@ def Crackling(configMngr):
                 testedCount
             ))
 
-            printer('\n\n=========== (Start RNAfold) =========')
-
-            call(
+            caller(
                 "{} --noPS -j{} -i \"{}\" >> \"{}\"".format(
                     configMngr['rnafold']['binary'],
                     configMngr['rnafold']['threads'],
@@ -343,8 +336,6 @@ def Crackling(configMngr):
                 ), 
                 shell=True
             )
-
-            printer('\n\n============ (End RNAfold) ==========')
 
             total_number_structures = len(possibleTargets)
 
@@ -357,10 +348,6 @@ def Crackling(configMngr):
             i=0
             failedCount = 0
             for target23 in possibleTargets:
-                targetsData[target23]['L1'] = None
-                targetsData[target23]['structure'] = None
-                targetsData[target23]['energy'] = None
-
                 # we don't want guides on + starting with T, or on - ending with A
                 # and only things that have passed everything else so far
                 if  not ( 
@@ -388,7 +375,7 @@ def Crackling(configMngr):
                     if match_structure:
                         energy = ast.literal_eval(match_structure.group(1))
                         if energy < float(configMngr['rnafold']['low_energy_threshold']):
-                            possibleTargets[transToDNA(target23)][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                            possibleTargets[transToDNA(target23)][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                             failedCount += 1
                         else:
                             possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
@@ -397,7 +384,7 @@ def Crackling(configMngr):
                         if match_energy:
                             energy = ast.literal_eval(match_energy.group(1))
                             if energy <= float(configMngr['rnafold']['high_energy_threshold']):
-                                possibleTargets[transToDNA(target23)][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                                possibleTargets[transToDNA(target23)][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                                 failedCount += 1
                             else:
                                 possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
@@ -429,7 +416,7 @@ def Crackling(configMngr):
                     ((target23[-2:] == 'GG' and target23[0] == 'T') or (target23[:2] == 'CC' and target23[-1] == 'A'))        # accepted when tested on SS
                 ):
                     # mm10db rejected the guide
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
                     possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
@@ -465,12 +452,10 @@ def Crackling(configMngr):
                 # if it has passed none so far then don't bother using the sgRNAscorer2 model
                 # if it is only one test away from passing (threshold - 1) then use the sgRNAScorer2 model
                 # if it has already passed the threshold then don't bother
-                
-                # how many tools were potentially ran?
-                consensusToolsCount = configMngr.getNumberToolsInConsensus()
-                
+
                 currentConsensus = ((int)(possibleTargets[target23][FLAGS.index('acceptedByMm10db')] == 1) +    # mm10db accepted
                     (int)(possibleTargets[target23][FLAGS.index('passedG20')] == 1))                            # chopchop-g20 accepted
+                
                 if (currentConsensus == (int(configMngr['consensus']['n']) - 1)):
                     sequence = target23.upper()
                     entryList = []
@@ -491,14 +476,11 @@ def Crackling(configMngr):
                     targetsData[target23]['sgrnascorer2score'] = score
 
                     if float(score) < float(float(configMngr['sgrnascorer2']['score-threshold'])):
-                        possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                        possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                         failedCount += 1
                     else:
                         possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
                         
-                else:
-                    targetsData[target23]['sgrnascorer2score'] = None
-              
             printer('\t{} of {} failed here.'.format(
                 failedCount,
                 testedCount
@@ -537,10 +519,6 @@ def Crackling(configMngr):
         testedCount = 0
         with open(configMngr['bowtie2']['input'], 'w') as fWriteBowtie:
             for target23 in possibleTargets:
-                
-                targetsData[target23]['chr'] = None
-                targetsData[target23]['start'] = None
-                targetsData[target23]['end'] = None
             
                 if possibleTargets[target23][FLAGS.index('consensusCount')] >= int(configMngr['consensus']['n']):
                     testedCount += 1
@@ -561,17 +539,13 @@ def Crackling(configMngr):
                 
         printer('\tFile ready. Calling Bowtie.')
 
-        printer('\n\n=========== (Start Bowtie2) =========')
-
-        call("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
+        caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
            configMngr['bowtie2']['binary'],
            configMngr['input']['bowtie2-index'],
            configMngr['bowtie2']['threads'],
            configMngr['bowtie2']['input'],
            configMngr['bowtie2']['output'])
         ,shell=True)       
-
-        printer('\n\n============ (End Bowtie2) ==========\n\n')
 
         printer('\tStarting to process the Bowtie results.')
 
@@ -625,7 +599,7 @@ def Crackling(configMngr):
 
             # if that number is at least two, the target is removed
             if nb_occurences > 1:
-                possibleTargets[seq][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                possibleTargets[seq][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                 failedCount += 1
             else:
                 possibleTargets[seq][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
@@ -655,9 +629,9 @@ def Crackling(configMngr):
 
         # prepare the list of candidate guides to score
         testedCount = 0
+        
         with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
             for target23 in possibleTargets:
-                targetsData[target23]['offtargetscore'] = None
                 
                 if possibleTargets[target23][FLAGS.index('consensusCount')] >= int(configMngr['consensus']['n']) and \
                     possibleTargets[target23][FLAGS.index('passedBowtie')] == 1:
@@ -669,10 +643,8 @@ def Crackling(configMngr):
             testedCount
         ))
 
-        printer('\n\n============= (Start Offtarget) ============')
-
         # call the scoring method
-        call(
+        caller(
             ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
                 configMngr['offtargetscore']['binary'],
                 configMngr['input']['offtarget-sites'],
@@ -683,8 +655,6 @@ def Crackling(configMngr):
             )],
             shell = True
         )
-
-        printer('\n\n============== (End Offtarget) =============\n\n')
 
         targetsScored = {}
         with open(configMngr['offtargetscore']['output'], 'r') as fTargetsScored:
@@ -699,7 +669,7 @@ def Crackling(configMngr):
                 targetsData[target23]['offtargetscore'] = score
                 
                 if score < float(configMngr['offtargetscore']['score-threshold']):
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECT # reject due to this reason
+                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
                     possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
@@ -715,25 +685,24 @@ def Crackling(configMngr):
         printer('Writing results to file.')
 
         # Write guides to file. Include scores etc.
-        with open(configMngr['output']['file'], 'w+') as fOpen:
-            
-            fOpen.write('{}\n'.format(
-                        configMngr['output']['delimiter'].join(
-                            ['seq'] +
-                            FLAGS +
-                            [
-                                'start',
-                                'end',
-                                'chr',
-                                'offtargetscore',
-                                'sgrnascorer2score',
-                                'L1',
-                                'structure',
-                                'energy',
-                            ]
-                        )
-                    )
-                )
+        with open(configMngr['output']['file'], 'a+') as fOpen:
+            csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
+                            quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                            
+            csvWriter.writerow(
+                ['seq'] +
+                FLAGS +
+                [
+                    'start',
+                    'end',
+                    'chr',
+                    'offtargetscore',
+                    'sgrnascorer2score',
+                    'L1',
+                    'structure',
+                    'energy',
+                ]
+            )
             
             for target23 in possibleTargets:
                 output = [
@@ -751,16 +720,12 @@ def Crackling(configMngr):
                     targetsData[target23].get('energy', CODE_UNTESTED),
                 ]
                 
-                fOpen.write('{}\n'.format(
-                        configMngr['output']['delimiter'].join(map(str, output))
-                    )
-                )
-
+                csvWriter.writerow(output)
 
         #########################################
         ##              Clean up               ##
         #########################################
-        printer('Clearning auxiliary files')
+        printer('Cleaning auxiliary files')
         for f in [
             configMngr['rnafold']['input'],
             configMngr['rnafold']['output'],

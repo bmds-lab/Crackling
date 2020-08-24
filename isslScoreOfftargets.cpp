@@ -266,7 +266,7 @@ int main(int argc, char **argv)
 	for (size_t searchIdx = 0; searchIdx < querySignatures.size(); searchIdx++) {
 		auto querySequence = signatureToSequence(querySignatures[searchIdx]);
 		printf("%s\t", querySequence.c_str());
-		printf("%f\t\n", querySignatureScores[searchIdx]);
+		printf("%f\n", querySignatureScores[searchIdx]);
 	}
 
     return 0;

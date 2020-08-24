@@ -31,14 +31,42 @@ We present Crackling, a new method for whole-genome identification of suitable C
 4. Compile the off-target scoring function. An index of off-targets is required: to prepare this, read the next section (*Off-target Indexing*).
 
     ```
-    g++ -o isslScoreOfftargets isslScoreOfftargets.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
+    g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt
     ```
 
-5. Run the pipeline: 
+5. Create the virtual environment and install dependencies from pip
+
+    On Windows (with Windows Python Launcher installed):
+    
+    ```
+    py -3 -m venv .venv
+    
+    .venv\Scripts\activate.bat
+    
+    pip install -r requirements.txt
+    ```
+    
+    On Unix:
+    
+    ```
+    py -3 -m venv .venv
+    
+    source .venv/bin/activate
+    
+    pip install -r requirements.txt
+    ```
+    
+6. Run the pipeline: 
 
     ```
-    python3 Crackling.py -c config
+    python3 process.py -c config
     ```
+7. When making changes to the environment, make sure that you export the changes to the yaml file
+
+	```
+	pip freeze > requirements.txt
+	```
+
 
 ## Off-target Indexing
 
@@ -47,13 +75,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
 2. Extract off-target sites:
 
     ```
-    python extract-offtargets.py <input-file> <output-file>
+    python prepareListOfftargetSites.py <input-file> <output-file>
     ```
     
     For example:
     
     ```
-    python extract-offtargets.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
+    python prepareListOfftargetSites.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
     ```
 
 3. Sort the off-target sites. 
@@ -69,7 +97,7 @@ We present Crackling, a new method for whole-genome identification of suitable C
     Compile the indexer first: 
     
     ```
-    g++ -o isslCreateIndex isslCreateIndex.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+    g++ -o index_offtargetSites index_offtargetSites.cpp -O3 -std=c++11 -fopenmp -mpopcnt
     ```
     
     Generate the index:
@@ -77,13 +105,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
     *For a 20bp sgRNA where up to four mismatches are allowed, use a slice width of eight*
     
     ```
-    ./isslCreateIndex <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
+    ./index_offtargetSites <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
     ```
     
     For example:
     
     ```
-    ./isslCreateIndex ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
+    ./index_offtargetSites ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
     ```
 
 

@@ -1,5 +1,6 @@
 from time import localtime, strftime
 import configparser, os, shutil, sys
+import glob
 
 class ConfigManager():
     def __init__(self, filePath, messenger):
@@ -18,7 +19,7 @@ class ConfigManager():
         # A method, passed by reference, to send messages back to the "creator"
         self._sendMsg = messenger
 
-        # Setup complete... attempt loading the configuration from file
+        # Manager setup complete... attempt loading the configuration from file
         self._isConfigured = self._attemptLoadingConfig()
     
         if self._isConfigured:
@@ -38,16 +39,6 @@ class ConfigManager():
         #    exit()
     
         return self._ConfigParser.__getitem__(arg)
-    ### 
-    ### def _setattr_(self, key, val):
-    ###     self._sendMsg('hello2')
-    ###     if self._isConfigured:
-    ###         #configParserSetItem = self._ConfigParser.__setattr__(key, val)
-    ###         #self._isConfigured = self._validateConfig()
-    ###         if not self._isConfigured:
-    ###             self._sendMsg('Configuration now invalid!')
-    ###     else:
-    ###         self._sendMsg('Configuration manager not ready to take values')
 
     def _sendMsg(self, str):
         self._sendMsg(str)
@@ -136,8 +127,8 @@ class ConfigManager():
                 if isinstance(CONFIG[firstLayer], dict):
                     self._ConfigParser.add_section(firstLayer)
                     for secondLayer in CONFIG[firstLayer]:
-                        if secondLayer == 'delimiter':
-                            secondLayer = f'"{secondLayer}"'
+                        #if secondLayer == 'delimiter':
+                        #    secondLayer = f'"{secondLayer}"'
                         self._ConfigParser.set(firstLayer, secondLayer, str(CONFIG[firstLayer][secondLayer]))
                 else:
                     self._ConfigParser.set('general', firstLayer, CONFIG[firstLayer])
@@ -160,14 +151,15 @@ class ConfigManager():
         return True
 
     def _validateConfig(self):
+        c = self._ConfigParser
         # this method should only be ran once the config has been loaded in
         passed = True
     
         # check the binaries are executable
         for x in [
-            self._ConfigParser['offtargetscore']['binary'],
-            self._ConfigParser['bowtie2']['binary'],
-            self._ConfigParser['rnafold']['binary']
+            c['offtargetscore']['binary'],
+            c['bowtie2']['binary'],
+            c['rnafold']['binary']
         ]:
             if not shutil.which(x):
                 passed = False
@@ -176,11 +168,19 @@ class ConfigManager():
         # check that the 'n' value for the consensus is less than or equal to
         # the number of tools being used
         numToolsInConsesus = self.getNumberToolsInConsensus()
-        n = int(self._ConfigParser['consensus']['n'])
+        n = int(c['consensus']['n'])
         
         if n > numToolsInConsesus:
             passed = False
             self._sendMsg(f'The consensus approach is incorrectly set. You have specified {numToolsInConsesus} to be ran but the n-value is {n}. Change n to be <= {numToolsInConsesus}.')
+       
+        
+        c['output']['file'] = os.path.join(c['output']['dir'], f"{self.getConfigName()}-{c['output']['fileName']}")
+
+        if os.path.exists(c['output']['file']):
+            passed = False
+            self._sendMsg(f"The output file already exists: {c['output']['file']}")
+            self._sendMsg(f"To avoid loosing data, please rename your output file.")
             
         return passed
 
@@ -200,10 +200,7 @@ class ConfigManager():
             self._filesToProcess = glob.glob(self._ConfigParser['input']['exon-sequences'])          
 
     def getConfigName(self):
-        if self._isConfigured:
-            return self._ConfigParser['general']['name']
-        else:
-            return self._fallbackName
+        return self._ConfigParser['general']['name'] or self._fallbackName
 
     def getNumberToolsInConsensus(self):
         # theres a bug in ConfigParser that makes this messy.
@@ -239,8 +236,6 @@ class ConfigManager():
 
             c['bowtie2']['input'] = os.path.join(c['output']['dir'], f'{name}-bowtie-input.txt')
             c['bowtie2']['output'] = os.path.join(c['output']['dir'], f'{name}-bowtie-output.txt')
-
-            c['output']['file'] = os.path.join(c['output']['dir'], f"{name}-{c['output']['fileName']}")
 
             yield file
 
