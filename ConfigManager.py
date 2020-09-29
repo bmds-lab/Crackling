@@ -51,13 +51,14 @@ class ConfigManager():
         # (which will be passed by CLI args without an extension)
         if fileext == '':
             success = self._v1_0_0_to_v1_1_0()
-        
+            
         # Check for >v1.0.0, which should now be in the INI format
         if not success:
             # There's some indication that it's INI formatted, but now prove it!
             success = self._read_v1_1_0()
-
-        success = self._validateConfig()
+            
+        if success:
+            success = self._validateConfig()
 
         return success
 
@@ -145,13 +146,15 @@ class ConfigManager():
         try:
             with open(self._configFilePath, 'r') as fp:
                 self._ConfigParser.read_file(fp)
-            self._ConfigParser['output']['delimiter'] = char(self._ConfigParser['output']['delimiter'])
-        except:
+        except Exception as e:
+            print(e)
             return False
+        #self._ConfigParser['output']['delimiter'] = char(self._ConfigParser['output']['delimiter'])
         return True
 
     def _validateConfig(self):
         c = self._ConfigParser
+        
         # this method should only be ran once the config has been loaded in
         passed = True
     
@@ -222,6 +225,7 @@ class ConfigManager():
         return self._isConfigured
 
     def getIterFilesToProcess(self):
+        fileId = 0
         for file in self._filesToProcess:
             
             c = self._ConfigParser
@@ -231,11 +235,13 @@ class ConfigManager():
             c['rnafold']['input'] = os.path.join(c['output']['dir'], f'{name}-rnafold-input.txt')
             c['rnafold']['output'] = os.path.join(c['output']['dir'], f'{name}-rnafold-output.txt')
 
-            c['offtargetscore']['input'] = os.path.join(c['output']['dir'], f'{name}-offtargetscore-input.txt')
-            c['offtargetscore']['output'] = os.path.join(c['output']['dir'], f'{name}-offtargetscore-output.txt')
+            c['offtargetscore']['input'] = os.path.join(c['output']['dir'], f'{name}-{fileId}-offtargetscore-input.txt')
+            c['offtargetscore']['output'] = os.path.join(c['output']['dir'], f'{name}-{fileId}-offtargetscore-output.txt')
 
             c['bowtie2']['input'] = os.path.join(c['output']['dir'], f'{name}-bowtie-input.txt')
             c['bowtie2']['output'] = os.path.join(c['output']['dir'], f'{name}-bowtie-output.txt')
+
+            fileId += 1
 
             yield file
 

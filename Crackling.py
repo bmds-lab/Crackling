@@ -53,13 +53,6 @@ from subprocess import call
 from time import localtime, strftime, gmtime
 
 from ConfigManager import ConfigManager
-    
-# flags indicate accept/reject, consensus count etc.
-# order is important here, so we'll keep one list of flags (integers)
-# and another for the corresponding flag labels
-NUM_FLAGS = 10
-FLAG_IDX = 0
-FLAGS = []
 
 # keep all the data relating to a target (eg: offtarget score, secondary structure formation, etc)
 # the order is NOT important here, so we'll just construct a nested dictionary
@@ -137,6 +130,14 @@ def Crackling(configMngr):
     lastRunTimeSec = 0
     lastScaffoldSizeBytes = 0
     totalRunTimeSec = 0
+    
+        
+    # flags indicate accept/reject, consensus count etc.
+    # order is important here, so we'll keep one list of flags (integers)
+    # and another for the corresponding flag labels
+    NUM_FLAGS = 10
+    FLAG_IDX = 0
+    FLAGS = []
     
     printer('Crackling is starting...')
     
@@ -455,12 +456,12 @@ def Crackling(configMngr):
 
                 currentConsensus = ((int)(possibleTargets[target23][FLAGS.index('acceptedByMm10db')] == 1) +    # mm10db accepted
                     (int)(possibleTargets[target23][FLAGS.index('passedG20')] == 1))                            # chopchop-g20 accepted
-                
+
                 if (currentConsensus == (int(configMngr['consensus']['n']) - 1)):
                     sequence = target23.upper()
                     entryList = []
                     testedCount += 1
-                    
+
                     x = 0
                     while x < 20:
                         y = 0
@@ -468,7 +469,7 @@ def Crackling(configMngr):
                             entryList.append(int(encoding[sequence[x]][y]))
                             y += 1
                         x += 1
-                        
+
                     # predict based on the entry
                     prediction = clfLinear.predict([entryList])
                     score = clfLinear.decision_function([entryList])[0]
@@ -502,9 +503,7 @@ def Crackling(configMngr):
                 (int)(possibleTargets[target23][FLAGS.index('passedG20')] == 1)                       # chopchop-g20 accepted
             )
 
-           
-                
-                
+
         ###############################################
         ##         Using Bowtie for positioning      ##
         ###############################################
@@ -538,7 +537,7 @@ def Crackling(configMngr):
                         tempTargetDict_offset[seq] = target23
                 
         printer('\tFile ready. Calling Bowtie.')
-
+        
         caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
            configMngr['bowtie2']['binary'],
            configMngr['input']['bowtie2-index'],
@@ -546,13 +545,13 @@ def Crackling(configMngr):
            configMngr['bowtie2']['input'],
            configMngr['bowtie2']['output'])
         ,shell=True)       
-
+        
         printer('\tStarting to process the Bowtie results.')
-
+        
         inFile = open(configMngr['bowtie2']['output'],'r')
         bowtieLines = inFile.readlines()
         inFile.close()
-
+        
         i=0
         failedCount = 0
         while i<len(bowtieLines):
@@ -570,7 +569,7 @@ def Crackling(configMngr):
                 seq = tempTargetDict_offset[rc(read)]
             else:
                 print("Problem? "+read)
-
+        
             if seq[:-2] == 'GG':
                 targetsData[seq]['chr'] = chr
                 targetsData[seq]['start'] = pos
@@ -596,7 +595,7 @@ def Crackling(configMngr):
                     # we also check whether this perfect alignment also happens elsewhere
                     if "XS:i:0"  in bowtieLines[j]:
                         nb_occurences += 1
-
+        
             # if that number is at least two, the target is removed
             if nb_occurences > 1:
                 possibleTargets[seq][FLAG_IDX] = CODE_REJECTED # reject due to this reason
@@ -606,27 +605,27 @@ def Crackling(configMngr):
                 
             # we continue with the next target
             i+=8
-
-        # we can remove the dictionnary
+        
+        # we can remove the dictionary
         del tempTargetDict_offset
-
+        
         printer('\t{} of {} failed here.'.format(
             failedCount,
             testedCount
         ))
-
-
+        
+        
         #########################################
         ##      Begin off-target scoring       ##
         #########################################   
         FLAGS.append('passedOffTargetScore')
         FLAG_IDX += 1
-
+        
         printer('Beginning off-target scoring.')
-
+        
         i=0
         targetsToRemove=[]
-
+        
         # prepare the list of candidate guides to score
         testedCount = 0
         
@@ -642,7 +641,7 @@ def Crackling(configMngr):
         printer('\t{} to calculate scores.'.format(
             testedCount
         ))
-
+        
         # call the scoring method
         caller(
             ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
@@ -655,13 +654,13 @@ def Crackling(configMngr):
             )],
             shell = True
         )
-
+        
         targetsScored = {}
         with open(configMngr['offtargetscore']['output'], 'r') as fTargetsScored:
             for targetScored in [x.split('\t') for x in fTargetsScored.readlines()]:
                 if len(targetScored) == 2:
                     targetsScored[targetScored[0]] = float(targetScored[1].strip())
-
+        
         failedCount = 0
         for target23 in possibleTargets:
             if target23[0:20] in targetsScored:
@@ -673,7 +672,7 @@ def Crackling(configMngr):
                     failedCount += 1
                 else:
                     possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
-
+        
         printer('\t{} of {} failed here.'.format(
             failedCount,
             testedCount
