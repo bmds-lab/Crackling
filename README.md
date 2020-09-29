@@ -20,6 +20,8 @@ We present Crackling, a new method for whole-genome identification of suitable C
 
 - sgRNAScorer 2.0 model (included)
 
+- Python v3.6+
+
 ## Installation
 
 1. Clone or [download](https://github.com/bmds-lab/Crackling/archive/master.zip) the source.
@@ -37,7 +39,7 @@ We present Crackling, a new method for whole-genome identification of suitable C
 5. Run the pipeline: 
 
     ```
-    python3 Crackling.py -c config
+    python Crackling.py -c config
     ```
 
 ## Off-target Indexing
@@ -47,13 +49,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
 2. Extract off-target sites:
 
     ```
-    python extract-offtargets.py <input-file> <output-file>
+    python extractOfftargets.py <input-file> <output-file>
     ```
     
     For example:
     
     ```
-    python extract-offtargets.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
+    python extractOfftargets.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
     ```
 
 3. Sort the off-target sites. 
