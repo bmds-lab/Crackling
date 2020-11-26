@@ -54,33 +54,71 @@ from time import localtime, strftime, gmtime
 
 from ConfigManager import ConfigManager
 
-# keep all the data relating to a target (eg: offtarget score, secondary structure formation, etc)
-# the order is NOT important here, so we'll just construct a nested dictionary
-# key: target sequence, value: a dictionary which is built on the fly
-targetsData = {}
-
 # binary encoding
 encoding = {
-    'A' : '0001',
-    'C' : '0010',
-    'T' : '0100',
-    'G' : '1000',
-    'K' : '1100',
-    'M' : '0011',
-    'R' : '1001',
-    'Y' : '0110',
-    'S' : '1010',
-    'W' : '0101',
-    'B' : '1110',
-    'V' : '1011',
-    'H' : '0111',
-    'D' : '1101',
-    'N' : '1111'
+    'A' : '0001',    'C' : '0010',    'T' : '0100',    'G' : '1000',
+    'K' : '1100',    'M' : '0011',    'R' : '1001',    'Y' : '0110',
+    'S' : '1010',    'W' : '0101',    'B' : '1110',    'V' : '1011',
+    'H' : '0111',    'D' : '1101',    'N' : '1111'
 }
 
 CODE_ACCEPTED = 1
 CODE_REJECTED = 0
 CODE_UNTESTED = "?"
+
+DEFAULT_GUIDE_PROPERTIES = {
+    'seq'                       : "",
+    'header'                    : "",
+    'seqCount'                  : 0,
+    'start'                     : CODE_UNTESTED,
+    'end'                       : CODE_UNTESTED,
+    'strand'                    : CODE_UNTESTED,
+    'passedTTTT'                : CODE_UNTESTED,
+    'passedAT2065'              : CODE_UNTESTED,
+    'passedG20'                 : CODE_UNTESTED,
+    'passedSecondaryStructure'  : CODE_UNTESTED,
+    'ssL1'                      : CODE_UNTESTED,
+    'ssStructure'               : CODE_UNTESTED,
+    'ssEnergy'                  : CODE_UNTESTED,
+    'acceptedByMm10db'          : CODE_UNTESTED,
+    'acceptedBySgRnaScorer'     : CODE_UNTESTED,
+    'consensusCount'            : CODE_UNTESTED,
+    'passedBowtie'              : CODE_UNTESTED,
+    'passedOffTargetScore'      : CODE_UNTESTED,
+    'sgrnascorer2score'         : CODE_UNTESTED,
+    'AT'                        : CODE_UNTESTED,
+    'bowtieChr'                 : CODE_UNTESTED,
+    'bowtieStart'               : CODE_UNTESTED,
+    'bowtieEnd'                 : CODE_UNTESTED,
+    'offtargetscore'            : CODE_UNTESTED,
+}
+
+DEFAULT_GUIDE_PROPERTIES_ORDER = [
+    'seq',
+    'sgrnascorer2score',
+    'header',
+    'start',
+    'end',
+    'strand',
+    'seqCount',
+    'passedG20',
+    'passedTTTT',
+    'passedAT2065',
+    'passedSecondaryStructure',
+    'ssL1',
+    'ssStructure',
+    'ssEnergy',
+    'acceptedByMm10db',
+    'acceptedBySgRnaScorer',
+    'consensusCount',
+    'passedBowtie',
+    'passedOffTargetScore',
+    'AT',
+    'bowtieChr',
+    'bowtieStart',
+    'bowtieEnd',
+    'offtargetscore'
+]
 
 # Function that returns the reverse-complement of a given sequence
 def rc(dna):
@@ -130,15 +168,7 @@ def Crackling(configMngr):
     lastRunTimeSec = 0
     lastScaffoldSizeBytes = 0
     totalRunTimeSec = 0
-    
-        
-    # flags indicate accept/reject, consensus count etc.
-    # order is important here, so we'll keep one list of flags (integers)
-    # and another for the corresponding flag labels
-    NUM_FLAGS = 10
-    FLAG_IDX = 0
-    FLAGS = []
-    
+
     printer('Crackling is starting...')
     
     for seqFilePath in configMngr.getIterFilesToProcess():
@@ -146,9 +176,6 @@ def Crackling(configMngr):
         ##        Begin this run         ##
         ###################################
         printer('*' * 100)
-
-        FLAG_IDX = 0
-        FLAGS = []
 
         sys.stdout.log.flush()
 
@@ -168,41 +195,54 @@ def Crackling(configMngr):
         
         seqFileCounter += 1
 
-
-
         ###################################
         ##   Processing the input file   ##
         ###################################
-        FLAGS.append('seqCount')
-
         printer('Identifying possible target sites in: {}'.format(
             seqFilePath
         ))
+        
+        # key: FASTA header, value: sequence
+        seqsInFile = {}
+
+        with open(seqFilePath, 'r') as inFile:
+            previousHeader = None
+            for line in inFile:
+                line = line.strip()
+                if line[0] == '>':
+                    seqsInFile[line[1:]] = ""
+                    previousHeader = line[1:]
+                    continue
+                else:
+                    seqsInFile[previousHeader] += line
+
+        printer(f"The file contained {len(seqsInFile)} sequence(s)")
 
         possibleTargets = {}
 
         pattern_forward = r"(?=([ATCG]{21}GG))"
         pattern_reverse = r"(?=(CC[ACGT]{21}))"
 
-        with open(seqFilePath, 'r') as inFile:
-            for line_seq in inFile:
-                if line_seq[0] == '>':
-                    continue
-                    
-                # once for forward, once for reverse
-                for pattern, seqModifier in [
-                    [pattern_forward, lambda x : x], 
-                    [pattern_reverse, lambda x : rc(x)]
-                ]:
-                    match_seq = re.findall(pattern, line_seq)
-                    if match_seq:
-                        for i in range(0, len(match_seq)):
-                            target23 = seqModifier(match_seq[i])
-                            if target23 in possibleTargets:
-                                possibleTargets[target23][FLAG_IDX] += 1
-                            else:
-                                possibleTargets[target23] = [0] + [CODE_UNTESTED] * (NUM_FLAGS - 1)
-                                targetsData[target23] = {}
+        for seqHeader in seqsInFile:
+            seq = seqsInFile[seqHeader]
+            
+            # once for forward, once for reverse
+            for pattern, strand, seqModifier in [
+                [pattern_forward, '+', lambda x : x], 
+                [pattern_reverse, '-', lambda x : rc(x)]
+            ]:
+                p = re.compile(pattern)
+                for m in p.finditer(seq):
+                    target23 = seq[m.start() : m.start() + 23]
+                    if target23 not in possibleTargets:
+                        possibleTargets[target23] = DEFAULT_GUIDE_PROPERTIES.copy()
+                        possibleTargets[target23]['seq'] = target23
+                        possibleTargets[target23]['header'] = seqHeader
+                        possibleTargets[target23]['start'] = m.start()
+                        possibleTargets[target23]['end'] = m.start() + 23
+                        possibleTargets[target23]['strand'] = strand
+                    else:
+                        possibleTargets[target23]['seqCount'] += 1
 
 
         printer('Identified {} possible target sites.'.format(
@@ -212,19 +252,16 @@ def Crackling(configMngr):
         ############################################
         ##   Removing targets that contain TTTT   ##
         ############################################
-        FLAGS.append('passedTTTT')
-        FLAG_IDX += 1
-
         if (configMngr['consensus'].getboolean('mm10db')):
             printer('Removing all targets that contain TTTT.')
 
             failedCount = 0
             for target23 in possibleTargets:
                 if "TTTT" in target23:
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                    possibleTargets[target23]['passedTTTT'] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
-                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                    possibleTargets[target23]['passedTTTT'] = CODE_ACCEPTED # accept due to this reason
 
             printer('\t{} of {} failed here.'.format(
                 failedCount,
@@ -235,9 +272,6 @@ def Crackling(configMngr):
         #########################################
         ##    AT% ideally is between 20-65%    ##
         ######################################### 
-        FLAGS.append('passedAT2065')
-        FLAG_IDX += 1
-
         if (configMngr['consensus'].getboolean('mm10db')):
             printer('Calculating AT 20-65.')
 
@@ -245,12 +279,12 @@ def Crackling(configMngr):
             for target23 in possibleTargets:
                 AT = AT_percentage(target23[0:20])
                 if AT < 20 or AT > 65:
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                    possibleTargets[target23]['passedAT2065'] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
-                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                    possibleTargets[target23]['passedAT2065'] = CODE_ACCEPTED # accept due to this reason
                 
-                targetsData[target23]['AT'] = AT
+                possibleTargets[target23]['AT'] = AT
 
             printer('\t{} of {} failed here.'.format(
                 failedCount,
@@ -260,19 +294,16 @@ def Crackling(configMngr):
         #########################################
         ##                 G20                 ##
         #########################################
-        FLAGS.append('passedG20')
-        FLAG_IDX += 1
-
         if (configMngr['consensus'].getboolean('CHOPCHOP')):
             printer('Check for G20.')
 
             failedCount = 0
             for target23 in possibleTargets:
                 if target23[19] != 'G':
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                    possibleTargets[target23]['passedG20'] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
-                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                    possibleTargets[target23]['passedG20'] = CODE_ACCEPTED # accept due to this reason
 
             printer('\t{} of {} failed here.'.format(
                 failedCount,
@@ -284,10 +315,6 @@ def Crackling(configMngr):
         ##   Calculating secondary structures   ##
         ##########################################
         # Do not check SS if any other of mm10db's checks have already failed   
-
-        FLAGS.append('passedSecondaryStructure')
-        FLAG_IDX += 1
-
         if (configMngr['consensus'].getboolean('mm10db')):
 
             printer('Secondary structure analysis.')
@@ -313,8 +340,8 @@ def Crackling(configMngr):
                             (target23[-2:] == 'GG' and target23[0] == 'T') or 
                             (target23[:2] == 'CC' and target23[-1] == 'A')
                         ) and \
-                        possibleTargets[target23][FLAGS.index('passedAT2065')] == 1 and \
-                        possibleTargets[target23][FLAGS.index('passedTTTT')] == 1:
+                        possibleTargets[target23]['passedAT2065'] == 1 and \
+                        possibleTargets[target23]['passedTTTT'] == 1:
                         fRnaInput.write(
                             "G{}{}\n".format(
                                 target23[1:20], 
@@ -354,7 +381,7 @@ def Crackling(configMngr):
                 if  not ( 
                         (target23[-2:] == 'GG' and target23[0] == 'T') or 
                         (target23[:2] == 'CC' and target23[-1] == 'A')
-                    ) and possibleTargets[target23][FLAGS.index('passedAT2065')] == 1 and possibleTargets[target23][FLAGS.index('passedTTTT')] == 1:
+                    ) and possibleTargets[target23]['passedAT2065'] == 1 and possibleTargets[target23]['passedTTTT'] == 1:
                 
                     
                     L1 = RNA_structures[2*i].rstrip()
@@ -363,9 +390,9 @@ def Crackling(configMngr):
                     structure = L2.split(" ")[0]
                     energy = L2.split(" ")[1][1:-1]
                     
-                    targetsData[target23]['L1'] = L1
-                    targetsData[target23]['structure'] = structure
-                    targetsData[target23]['energy'] = energy
+                    possibleTargets[target23]['L1'] = L1
+                    possibleTargets[target23]['structure'] = structure
+                    possibleTargets[target23]['energy'] = energy
                     
                     target = L1[:20]
                     if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
@@ -376,19 +403,19 @@ def Crackling(configMngr):
                     if match_structure:
                         energy = ast.literal_eval(match_structure.group(1))
                         if energy < float(configMngr['rnafold']['low_energy_threshold']):
-                            possibleTargets[transToDNA(target23)][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                            possibleTargets[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED # reject due to this reason
                             failedCount += 1
                         else:
-                            possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                            possibleTargets[target23]['passedSecondaryStructure'] = CODE_ACCEPTED # accept due to this reason
                     else:
                         match_energy = re.search(pattern_RNAenergy, L2)
                         if match_energy:
                             energy = ast.literal_eval(match_energy.group(1))
                             if energy <= float(configMngr['rnafold']['high_energy_threshold']):
-                                possibleTargets[transToDNA(target23)][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                                possibleTargets[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED # reject due to this reason
                                 failedCount += 1
                             else:
-                                possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                                possibleTargets[target23]['passedSecondaryStructure'] = CODE_ACCEPTED # accept due to this reason
                     i+=1
 
             printer('\t{} of {} failed here.'.format(
@@ -399,9 +426,6 @@ def Crackling(configMngr):
         #########################################
         ##         Calc mm10db result          ##
         ######################################### 
-        FLAGS.append('acceptedByMm10db')
-        FLAG_IDX += 1
-
         if (configMngr['consensus'].getboolean('mm10db')):
             printer('Calculating mm10db result.')
 
@@ -411,16 +435,16 @@ def Crackling(configMngr):
             for target23 in possibleTargets:
                 if (
                     # reject if: failed any tests or guide is on + starting with T or guide is on - ending with A
-                    possibleTargets[target23][FLAGS.index('passedAT2065')] == 0               or     # accepted when tested on AT2065
-                    possibleTargets[target23][FLAGS.index('passedTTTT')] == 0                 or     # accepted when tested on TTTT
-                    possibleTargets[target23][FLAGS.index('passedSecondaryStructure')] == 0   or
+                    possibleTargets[target23]['passedAT2065'] == 0               or     # accepted when tested on AT2065
+                    possibleTargets[target23]['passedTTTT'] == 0                 or     # accepted when tested on TTTT
+                    possibleTargets[target23]['passedSecondaryStructure'] == 0   or
                     ((target23[-2:] == 'GG' and target23[0] == 'T') or (target23[:2] == 'CC' and target23[-1] == 'A'))        # accepted when tested on SS
                 ):
                     # mm10db rejected the guide
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                    possibleTargets[target23]['acceptedByMm10db'] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
-                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                    possibleTargets[target23]['acceptedByMm10db'] = CODE_ACCEPTED # accept due to this reason
                     acceptedCount += 1
 
             printer('\t{} accepted.'.format(
@@ -436,9 +460,6 @@ def Crackling(configMngr):
         #########################################
         ##         sgRNAScorer 2.0 model       ##
         ######################################### 
-        FLAGS.append('acceptedBySgRnaScorer')
-        FLAG_IDX += 1
-
         if (configMngr['consensus'].getboolean('sgRNAScorer2')):
             printer('Calculating sgRNAScorer2 scores.')
 
@@ -453,16 +474,16 @@ def Crackling(configMngr):
                 # if it has passed none so far then don't bother using the sgRNAscorer2 model
                 # if it is only one test away from passing (threshold - 1) then use the sgRNAScorer2 model
                 # if it has already passed the threshold then don't bother
-
-                currentConsensus = ((int)(possibleTargets[target23][FLAGS.index('acceptedByMm10db')] == 1) +    # mm10db accepted
-                    (int)(possibleTargets[target23][FLAGS.index('passedG20')] == 1))                            # chopchop-g20 accepted
-
+                
+                currentConsensus = ((int)(possibleTargets[target23]['acceptedByMm10db'] == 1) +    # mm10db accepted
+                    (int)(possibleTargets[target23]['passedG20'] == 1))                            # chopchop-g20 accepted
+                
                 if (currentConsensus == (int(configMngr['consensus']['n']) - 1)):
                     sequence = target23.upper()
                     entryList = []
                     testedCount += 1
 
-                    x = 0
+                    x = 0 
                     while x < 20:
                         y = 0
                         while y < 4:
@@ -472,54 +493,48 @@ def Crackling(configMngr):
 
                     # predict based on the entry
                     prediction = clfLinear.predict([entryList])
-                    score = clfLinear.decision_function([entryList])[0]
+                    score = clfLinear.decision_function([entryList])[0] 
 
-                    targetsData[target23]['sgrnascorer2score'] = score
+                    possibleTargets[target23]['sgrnascorer2score'] = score
 
                     if float(score) < float(float(configMngr['sgrnascorer2']['score-threshold'])):
-                        possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                        possibleTargets[target23]['acceptedBySgRnaScorer'] = CODE_REJECTED # reject due to this reason
                         failedCount += 1
                     else:
-                        possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
-                        
+                        possibleTargets[target23]['acceptedBySgRnaScorer'] = CODE_ACCEPTED # accept due to this reason
+                            
             printer('\t{} of {} failed here.'.format(
                 failedCount,
                 testedCount
             ))
 
-            
+
         #########################################
         ##      Begin efficacy consensus       ##
         ######################################### 
-        FLAGS.append('consensusCount')
-        FLAG_IDX += 1
-
         printer('Beginning efficacy consensus.')
 
         for target23 in possibleTargets:
-            possibleTargets[target23][FLAG_IDX] = (
-                (int)(possibleTargets[target23][FLAGS.index('acceptedByMm10db')] == 1)          +     # mm10db accepted
-                (int)(possibleTargets[target23][FLAGS.index('acceptedBySgRnaScorer')] == 1)     +     # sgrnascorer2 accepted
-                (int)(possibleTargets[target23][FLAGS.index('passedG20')] == 1)                       # chopchop-g20 accepted
+            possibleTargets[target23]['consensusCount'] = (
+                (int)(possibleTargets[target23]['acceptedByMm10db'] == 1)          +     # mm10db accepted
+                (int)(possibleTargets[target23]['acceptedBySgRnaScorer'] == 1)     +     # sgrnascorer2 accepted
+                (int)(possibleTargets[target23]['passedG20'] == 1)                       # chopchop-g20 accepted
             )
 
 
         ###############################################
         ##         Using Bowtie for positioning      ##
         ###############################################
-        FLAGS.append('passedBowtie')
-        FLAG_IDX += 1
-
         printer('Bowtie analysis.')
-
+        
         printer('\tConstructing the Bowtie input file.')
-
+        
         tempTargetDict_offset = {}
         testedCount = 0
         with open(configMngr['bowtie2']['input'], 'w') as fWriteBowtie:
             for target23 in possibleTargets:
             
-                if possibleTargets[target23][FLAGS.index('consensusCount')] >= int(configMngr['consensus']['n']):
+                if possibleTargets[target23]['consensusCount'] >= int(configMngr['consensus']['n']):
                     testedCount += 1
                     similarTargets = [
                         target23[0:20] + "AGG", 
@@ -571,13 +586,13 @@ def Crackling(configMngr):
                 print("Problem? "+read)
         
             if seq[:-2] == 'GG':
-                targetsData[seq]['chr'] = chr
-                targetsData[seq]['start'] = pos
-                targetsData[seq]['end'] = pos + 22
+                possibleTargets[seq]['bowtieChr'] = chr
+                possibleTargets[seq]['bowtieStart'] = pos
+                possibleTargets[seq]['bowtieEnd'] = pos + 22
             elif rc(seq)[:2] == 'CC':
-                targetsData[seq]['chr'] = chr
-                targetsData[seq]['start'] = pos
-                targetsData[seq]['end'] = pos + 22
+                possibleTargets[seq]['bowtieChr'] = chr
+                possibleTargets[seq]['bowtieStart'] = pos
+                possibleTargets[seq]['bowtieEnd'] = pos + 22
             else:
                 print("Error? "+seq)
                 quit()  
@@ -598,10 +613,10 @@ def Crackling(configMngr):
         
             # if that number is at least two, the target is removed
             if nb_occurences > 1:
-                possibleTargets[seq][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                possibleTargets[seq]['passedBowtie'] = CODE_REJECTED # reject due to this reason
                 failedCount += 1
             else:
-                possibleTargets[seq][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                possibleTargets[seq]['passedBowtie'] = CODE_ACCEPTED # accept due to this reason
                 
             # we continue with the next target
             i+=8
@@ -618,9 +633,6 @@ def Crackling(configMngr):
         #########################################
         ##      Begin off-target scoring       ##
         #########################################   
-        FLAGS.append('passedOffTargetScore')
-        FLAG_IDX += 1
-        
         printer('Beginning off-target scoring.')
         
         i=0
@@ -632,8 +644,8 @@ def Crackling(configMngr):
         with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
             for target23 in possibleTargets:
                 
-                if possibleTargets[target23][FLAGS.index('consensusCount')] >= int(configMngr['consensus']['n']) and \
-                    possibleTargets[target23][FLAGS.index('passedBowtie')] == 1:
+                if possibleTargets[target23]['consensusCount'] >= int(configMngr['consensus']['n']) and \
+                    possibleTargets[target23]['passedBowtie'] == 1:
                     target = target23[0:20]
                     fTargetsToScore.write(target+"\n")
                     testedCount += 1
@@ -665,13 +677,13 @@ def Crackling(configMngr):
         for target23 in possibleTargets:
             if target23[0:20] in targetsScored:
                 score = targetsScored[target23[0:20]]
-                targetsData[target23]['offtargetscore'] = score
+                possibleTargets[target23]['offtargetscore'] = score
                 
                 if score < float(configMngr['offtargetscore']['score-threshold']):
-                    possibleTargets[target23][FLAG_IDX] = CODE_REJECTED # reject due to this reason
+                    possibleTargets[target23]['passedOffTargetScore'] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
-                    possibleTargets[target23][FLAG_IDX] = CODE_ACCEPTED # accept due to this reason
+                    possibleTargets[target23]['passedOffTargetScore'] = CODE_ACCEPTED # accept due to this reason
         
         printer('\t{} of {} failed here.'.format(
             failedCount,
@@ -687,37 +699,11 @@ def Crackling(configMngr):
         with open(configMngr['output']['file'], 'a+') as fOpen:
             csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
                             quotechar='"', quoting=csv.QUOTE_MINIMAL)
-                            
-            csvWriter.writerow(
-                ['seq'] +
-                FLAGS +
-                [
-                    'start',
-                    'end',
-                    'chr',
-                    'offtargetscore',
-                    'sgrnascorer2score',
-                    'L1',
-                    'structure',
-                    'energy',
-                ]
-            )
+                         
+            csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
             
             for target23 in possibleTargets:
-                output = [
-                    target23
-                ] + \
-                    possibleTargets[target23] + \
-                [
-                    targetsData[target23].get('start', CODE_UNTESTED),
-                    targetsData[target23].get('end', CODE_UNTESTED),
-                    targetsData[target23].get('chr', CODE_UNTESTED),
-                    targetsData[target23].get('offtargetscore', CODE_UNTESTED),
-                    targetsData[target23].get('sgrnascorer2score', CODE_UNTESTED),
-                    targetsData[target23].get('L1', CODE_UNTESTED),
-                    targetsData[target23].get('structure', CODE_UNTESTED),
-                    targetsData[target23].get('energy', CODE_UNTESTED),
-                ]
+                output = [possibleTargets[target23][x] for x in DEFAULT_GUIDE_PROPERTIES_ORDER]
                 
                 csvWriter.writerow(output)
 
