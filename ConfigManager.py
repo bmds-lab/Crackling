@@ -1,4 +1,5 @@
 from time import localtime, strftime
+from shutil import copyfile
 import configparser, os, shutil, sys
 import glob
 
@@ -24,6 +25,8 @@ class ConfigManager():
     
         if self._isConfigured:
             self._createListOfFilesToAnalyse()
+    
+        self._duplicateCracklingCodeAndConfig()
     
         # now that we have initially set things up, we should override __setattr__
         #self.__setattr__ = self._setattr_
@@ -154,7 +157,6 @@ class ConfigManager():
 
     def _validateConfig(self):
         c = self._ConfigParser
-        
         # this method should only be ran once the config has been loaded in
         passed = True
     
@@ -192,7 +194,7 @@ class ConfigManager():
         if os.path.isdir(self._ConfigParser['input']['exon-sequences']):
             for root, dirs, files in os.walk(self._ConfigParser['input']['exon-sequences']):
                 for file in sorted(files, reverse=True):
-                    self._filesToProcess.append(file)
+                    self._filesToProcess.append(os.path.join(self._ConfigParser['input']['exon-sequences'], file))
 
         # If the input sequence is a file:
         elif os.path.isfile(self._ConfigParser['input']['exon-sequences']):
@@ -201,7 +203,17 @@ class ConfigManager():
         # it's something else
         else:
             self._filesToProcess = glob.glob(self._ConfigParser['input']['exon-sequences'])          
-
+    
+    def _duplicateCracklingCodeAndConfig(self):
+        # Config file
+        filename, fileext = os.path.splitext(self._configFilePath)
+        newFile = os.path.join(self._ConfigParser['output']['dir'], f"{filename}{fileext}.backup")
+        copyfile(self._configFilePath, newFile)
+        
+        # Crackling
+        newFile = os.path.join(self._ConfigParser['output']['dir'], f"Crackling.py.backup")
+        copyfile('Crackling.py', newFile)
+    
     def getConfigName(self):
         return self._ConfigParser['general']['name'] or self._fallbackName
 

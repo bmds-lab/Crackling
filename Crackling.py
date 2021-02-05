@@ -65,16 +65,18 @@ encoding = {
 CODE_ACCEPTED = 1
 CODE_REJECTED = 0
 CODE_UNTESTED = "?"
+CODE_AMBIGUOUS = "-"
+CODE_ERROR = "!"
 
 DEFAULT_GUIDE_PROPERTIES = {
     'seq'                       : "",
     'header'                    : "",
-    'seqCount'                  : 0,
+    'seqCount'                  : 1,
     'start'                     : CODE_UNTESTED,
     'end'                       : CODE_UNTESTED,
     'strand'                    : CODE_UNTESTED,
     'passedTTTT'                : CODE_UNTESTED,
-    'passedAT2065'              : CODE_UNTESTED,
+    'passedATPercent'           : CODE_UNTESTED,
     'passedG20'                 : CODE_UNTESTED,
     'passedSecondaryStructure'  : CODE_UNTESTED,
     'ssL1'                      : CODE_UNTESTED,
@@ -91,6 +93,8 @@ DEFAULT_GUIDE_PROPERTIES = {
     'bowtieStart'               : CODE_UNTESTED,
     'bowtieEnd'                 : CODE_UNTESTED,
     'offtargetscore'            : CODE_UNTESTED,
+    'passedAvoidLeadingT'       : CODE_UNTESTED,
+    #'passedReversePrimer'      : CODE_UNTESTED,
 }
 
 DEFAULT_GUIDE_PROPERTIES_ORDER = [
@@ -103,7 +107,7 @@ DEFAULT_GUIDE_PROPERTIES_ORDER = [
     'seqCount',
     'passedG20',
     'passedTTTT',
-    'passedAT2065',
+    'passedATPercent',
     'passedSecondaryStructure',
     'ssL1',
     'ssStructure',
@@ -117,7 +121,9 @@ DEFAULT_GUIDE_PROPERTIES_ORDER = [
     'bowtieChr',
     'bowtieStart',
     'bowtieEnd',
-    'offtargetscore'
+    'offtargetscore',
+    'passedAvoidLeadingT',
+    #'passedReversePrimer',
 ]
 
 # Function that returns the reverse-complement of a given sequence
@@ -141,10 +147,101 @@ def AT_percentage(seq):
             total += 1
     return 100.0*total/length
 
+# Function that aligns two given sequences and returns their similarity
+def NeedlemanWunsch(seq1,seq2):
+    d = -5 # Gap penalty
+    A = seq1 # First sequence to be compared
+    B = seq2 # Second ""
+    I = range(len(seq1)) # To help iterate (Pythonic)
+    J = range(len(seq2)) # ""
+    F = [[0 for i in seq1] for j in seq2] # Fill a 2D array with zeroes
+    # Similarity matrix from Wikipedia:
+    S = \
+    {'A': {'A': 10, 'G': -1, 'C': -3, 'T': -4},
+        'G': {'A': -1, 'G':  7, 'C': -5, 'T': -3},
+        'C': {'A': -3, 'G': -5, 'C':  9, 'T':  0},
+        'T': {'A': -4, 'G': -3, 'C':  0, 'T':  8}}
+
+    # Initialization
+    for i in I:
+        F[i][0] = d * i
+    for j in J:
+        F[0][j] = d * j
+
+    # Scoring
+    for i in I[1:]:
+        for j in J[1:]:
+            Match = F[i-1][j-1] + S[A[i]][B[j]]
+            Delete = F[i-1][j] + d
+            Insert = F[i][j-1] + d
+            F[i][j] = max(Match, Insert, Delete)
+
+    # Traceback
+    AlignmentA = ""
+    AlignmentB = ""
+    i = len(seq1) - 1
+    j = len(seq2) - 1
+
+    while (i > 0 and j > 0):
+        Score = F[i][j]
+        ScoreDiag = F[i - 1][j - 1]
+        ScoreUp = F[i][j - 1]
+        ScoreLeft = F[i - 1][j]
+        if (Score == ScoreDiag + S[A[i]][B[j]]):
+            AlignmentA = A[i] + AlignmentA
+            AlignmentB = B[j] + AlignmentB
+            i -= 1
+            j -= 1
+        elif (Score == ScoreLeft + d):
+            AlignmentA = A[i] + AlignmentA
+            AlignmentB = "-" + AlignmentB
+            i -= 1
+        elif (Score == ScoreUp + d):
+            AlignmentA = "-" + AlignmentA
+            AlignmentB = B[j] + AlignmentB
+            j -= 1
+        else:
+            print("algorithm error?")
+    while (i > 0):
+        AlignmentA = A[i] + AlignmentA
+        AlignmentB = "-" + AlignmentB
+        i -= 1
+    while (j > 0):
+        AlignmentA = "-" + AlignmentA
+        AlignmentB = B[j] + AlignmentB
+        j -= 1
+
+    # Similarity
+    lenA = len(AlignmentA)
+    lenB = len(AlignmentB)
+    sim1 = ""
+    sim2 = ""
+    len0 = 0
+    k = 0
+    total = 0.0
+    similarity = 0.0
+
+    if (lenA > lenB):
+        sim1 = AlignmentA
+        sim2 = AlignmentB
+        len0 = lenA
+    else:
+        sim1 = AlignmentB
+        sim2 = AlignmentA
+        len0 = lenB
+
+    while (k < len0):
+        if (sim1[k] == sim2[k]):
+            total += 1
+        k += 1
+
+    similarity = total / len0 * 100
+
+    return similarity
     
 def printer(stringFormat):
-    print('>>>> {}:\t{}\n'.format(
-        strftime("%H:%M:%S", localtime()),
+    print('>>> {}:\t{}\n'.format(
+        strftime("%Y-%m-%d %H:%M:%S", localtime()),
         stringFormat
     ))
 
@@ -206,7 +303,7 @@ def Crackling(configMngr):
         seqsInFile = {}
 
         with open(seqFilePath, 'r') as inFile:
-            previousHeader = None
+            previousHeader = seqFilePath
             for line in inFile:
                 line = line.strip()
                 if line[0] == '>':
@@ -214,9 +311,13 @@ def Crackling(configMngr):
                     previousHeader = line[1:]
                     continue
                 else:
-                    seqsInFile[previousHeader] += line
+                    if previousHeader not in seqsInFile:
+                        # it could be a plain text file, without a header
+                        seqsInFile[previousHeader] = ""
+                        
+                    seqsInFile[previousHeader] += line.strip()
 
-        printer(f"The file contained {len(seqsInFile)} sequence(s)")
+        printer(f"The file contained {len(seqsInFile)} sequence(s). The length of the sequence(s): {', '.join([str(len(seqsInFile[x])) for x in seqsInFile])}")
 
         possibleTargets = {}
 
@@ -233,7 +334,7 @@ def Crackling(configMngr):
             ]:
                 p = re.compile(pattern)
                 for m in p.finditer(seq):
-                    target23 = seq[m.start() : m.start() + 23]
+                    target23 = seqModifier(seq[m.start() : m.start() + 23])
                     if target23 not in possibleTargets:
                         possibleTargets[target23] = DEFAULT_GUIDE_PROPERTIES.copy()
                         possibleTargets[target23]['seq'] = target23
@@ -242,7 +343,12 @@ def Crackling(configMngr):
                         possibleTargets[target23]['end'] = m.start() + 23
                         possibleTargets[target23]['strand'] = strand
                     else:
+                        # we've already seen this guide, make the positioning ambiguous
                         possibleTargets[target23]['seqCount'] += 1
+                        possibleTargets[target23]['header'] = CODE_AMBIGUOUS
+                        possibleTargets[target23]['start'] = CODE_AMBIGUOUS
+                        possibleTargets[target23]['end'] = CODE_AMBIGUOUS
+                        possibleTargets[target23]['strand'] = CODE_AMBIGUOUS
 
 
         printer('Identified {} possible target sites.'.format(
@@ -250,10 +356,55 @@ def Crackling(configMngr):
         ))
 
         ############################################
+        ##     Removing targets with leading T    ##
+        ############################################
+        if (configMngr['consensus'].getboolean('mm10db')):
+            printer('mm10db - remove all targets with a leading T (+) or trailing A (-).')
+
+            failedCount = 0
+            for target23 in possibleTargets:
+                if (target23[-2:] == 'GG' and target23[0] == 'T') or \
+                    (target23[:2] == 'CC' and target23[-1] == 'A'):
+                    possibleTargets[target23]['passedAvoidLeadingT'] = CODE_REJECTED # reject due to this reason
+                    failedCount += 1
+                else:
+                    possibleTargets[target23]['passedAvoidLeadingT'] = CODE_ACCEPTED # accept due to this reason
+
+            printer('\t{} of {} failed here.'.format(
+                failedCount,
+                len(possibleTargets)
+            ))
+            
+        #########################################
+        ##    AT% ideally is between 20-65%    ##
+        ######################################### 
+        if (configMngr['consensus'].getboolean('mm10db')):
+            printer('mm10db - remove based on AT percent.')
+
+            failedCount = 0
+            for target23 in possibleTargets:
+                AT = AT_percentage(target23[0:20])
+                #if AT < 45:
+                if AT < 20 or AT > 65:
+                    possibleTargets[target23]['passedATPercent'] = CODE_REJECTED # reject due to this reason
+                    failedCount += 1
+                else:
+                    possibleTargets[target23]['passedATPercent'] = CODE_ACCEPTED # accept due to this reason
+                
+                possibleTargets[target23]['AT'] = AT
+
+            printer('\t{} of {} failed here.'.format(
+                failedCount,
+                len(possibleTargets)
+            ))
+            
+            #printer(f"\tmm10db equiv: {sum([(possibleTargets[target23]['passedAvoidLeadingT'] and possibleTargets[target23]['passedATPercent']) for target23 in possibleTargets])}")
+
+        ############################################
         ##   Removing targets that contain TTTT   ##
         ############################################
         if (configMngr['consensus'].getboolean('mm10db')):
-            printer('Removing all targets that contain TTTT.')
+            printer('mm10db - remove all targets that contain TTTT.')
 
             failedCount = 0
             for target23 in possibleTargets:
@@ -267,48 +418,27 @@ def Crackling(configMngr):
                 failedCount,
                 len(possibleTargets)
             ))
-
-                
-        #########################################
-        ##    AT% ideally is between 20-65%    ##
-        ######################################### 
-        if (configMngr['consensus'].getboolean('mm10db')):
-            printer('Calculating AT 20-65.')
-
-            failedCount = 0
-            for target23 in possibleTargets:
-                AT = AT_percentage(target23[0:20])
-                if AT < 20 or AT > 65:
-                    possibleTargets[target23]['passedAT2065'] = CODE_REJECTED # reject due to this reason
-                    failedCount += 1
-                else:
-                    possibleTargets[target23]['passedAT2065'] = CODE_ACCEPTED # accept due to this reason
-                
-                possibleTargets[target23]['AT'] = AT
-
-            printer('\t{} of {} failed here.'.format(
-                failedCount,
-                len(possibleTargets)
-            ))
-           
-        #########################################
-        ##                 G20                 ##
-        #########################################
-        if (configMngr['consensus'].getboolean('CHOPCHOP')):
-            printer('Check for G20.')
-
-            failedCount = 0
-            for target23 in possibleTargets:
-                if target23[19] != 'G':
-                    possibleTargets[target23]['passedG20'] = CODE_REJECTED # reject due to this reason
-                    failedCount += 1
-                else:
-                    possibleTargets[target23]['passedG20'] = CODE_ACCEPTED # accept due to this reason
-
-            printer('\t{} of {} failed here.'.format(
-                failedCount,
-                len(possibleTargets)
-            ))      
+            
+            #printer(f"\tmm10db equiv: {sum([(possibleTargets[target23]['passedAvoidLeadingT'] and possibleTargets[target23]['passedATPercent'] and possibleTargets[target23]['passedTTTT']) for target23 in possibleTargets])}")
+            
+        # #########################################
+        # ##     Distance to reverse primer      ##
+        # #########################################
+        # if (configMngr['consensus'].getboolean('mm10db')):
+        #     printer('Check if guide is too close to reverse primer.')
+        # 
+        #     failedCount = 0
+        #     for target23 in possibleTargets:
+        #         if NeedlemanWunsch(target23[0:20], "AAAAGCACCGACTCGGTGCC") > 60:
+        #             possibleTargets[target23]['passedReversePrimer'] = CODE_REJECTED # reject due to this reason
+        #             failedCount += 1
+        #         else:
+        #             possibleTargets[target23]['passedReversePrimer'] = CODE_ACCEPTED # accept due to this reason
+        # 
+        #     printer('\t{} of {} failed here.'.format(
+        #         failedCount,
+        #         len(possibleTargets)
+        #     ))      
                 
                 
         ##########################################
@@ -316,8 +446,7 @@ def Crackling(configMngr):
         ##########################################
         # Do not check SS if any other of mm10db's checks have already failed   
         if (configMngr['consensus'].getboolean('mm10db')):
-
-            printer('Secondary structure analysis.')
+            printer('mm10db - check secondary structure.')
 
             guide = "GUUUUAGAGCUAGAAAUAGCAAGUUAAAAUAAGGCUAGUCCGUUAUCAACUUGAAAAAGUGGCACCGAGUCGGUGCUUUU"
             pattern_RNAstructure = r".{28}\({4}\.{4}\){4}\.{3}\){4}.{21}\({4}\.{4}\){4}\({7}\.{3}\){7}\.{3}\s\((.+)\)"
@@ -334,13 +463,9 @@ def Crackling(configMngr):
             testedCount = 0
             with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
                 for target23 in possibleTargets:
-                    # we don't want guides on + starting with T, or on - ending with A
-                    # and only things that have passed everything else so far
-                    if  not ( 
-                            (target23[-2:] == 'GG' and target23[0] == 'T') or 
-                            (target23[:2] == 'CC' and target23[-1] == 'A')
-                        ) and \
-                        possibleTargets[target23]['passedAT2065'] == 1 and \
+                    # we only guides that have passed for mm10db's test so far
+                    if  possibleTargets[target23]['passedAvoidLeadingT'] == 1 and \
+                        possibleTargets[target23]['passedATPercent'] == 1 and \
                         possibleTargets[target23]['passedTTTT'] == 1:
                         fRnaInput.write(
                             "G{}{}\n".format(
@@ -356,7 +481,7 @@ def Crackling(configMngr):
             ))
 
             caller(
-                "{} --noPS -j{} -i \"{}\" >> \"{}\"".format(
+                "{} --noPS -j{} -i \"{}\" > \"{}\"".format(
                     configMngr['rnafold']['binary'],
                     configMngr['rnafold']['threads'],
                     configMngr['rnafold']['input'],
@@ -365,39 +490,61 @@ def Crackling(configMngr):
                 shell=True
             )
 
-            total_number_structures = len(possibleTargets)
-
             printer('\tStarting to process the RNAfold results.')
 
-            RNA_structures = None
+            RNAstructures = {}
             with open(configMngr['rnafold']['output'], 'r') as fRnaOutput:
-                RNA_structures = fRnaOutput.readlines()
+                i = 0
+                L1, L2, target = None, None, None
+                for line in fRnaOutput:
+                    if i % 2 == 0:
+                        # 0th, 2nd, 4th, etc.
+                        L1 = line.rstrip()
+                        target = L1[0:20]
+                    else:
+                        # 1st, 3rd, 5th, etc.
+                        L2 = line.rstrip()
+                        RNAstructures[transToDNA(target[1:20])] = [
+                            L1, L2, target
+                        ]
 
-            i=0
+                    i += 1
+
             failedCount = 0
+            errorCount = 0
+            notFoundCount = 0 
             for target23 in possibleTargets:
-                # we don't want guides on + starting with T, or on - ending with A
-                # and only things that have passed everything else so far
-                if  not ( 
-                        (target23[-2:] == 'GG' and target23[0] == 'T') or 
-                        (target23[:2] == 'CC' and target23[-1] == 'A')
-                    ) and possibleTargets[target23]['passedAT2065'] == 1 and possibleTargets[target23]['passedTTTT'] == 1:
-                
+                # we only guides that have passed for mm10db's test so far
+                if  possibleTargets[target23]['passedAvoidLeadingT'] == 1 and \
+                    possibleTargets[target23]['passedATPercent'] == 1 and \
+                    possibleTargets[target23]['passedTTTT'] == 1:
                     
-                    L1 = RNA_structures[2*i].rstrip()
-                    L2 = RNA_structures[2*i+1].rstrip()
-                    
+                    key = target23[1:20]
+                    if key not in RNAstructures:
+                        print(f"Could not find: {target23[0:20]}")
+                        notFoundCount += 1
+                        continue
+                    else:
+                        L1 = RNAstructures[key][0]
+                        L2 = RNAstructures[key][1]
+                        target = RNAstructures[key][2]
+
                     structure = L2.split(" ")[0]
                     energy = L2.split(" ")[1][1:-1]
                     
-                    possibleTargets[target23]['L1'] = L1
-                    possibleTargets[target23]['structure'] = structure
-                    possibleTargets[target23]['energy'] = energy
+                    possibleTargets[target23]['ssL1'] = L1
+                    possibleTargets[target23]['ssStructure'] = structure
+                    possibleTargets[target23]['ssEnergy'] = energy
                     
-                    target = L1[:20]
                     if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
-                        print("Error? "+target23+"\t"+target)
-                        quit()
+                        possibleTargets[target23]['passedSecondaryStructure'] = CODE_ERROR
+                        #print(
+                        #    f"Error?",
+                        #    target23,
+                        #    target
+                        #)
+                        errorCount += 1
+                        continue
 
                     match_structure = re.search(pattern_RNAstructure, L2)
                     if match_structure:
@@ -416,18 +563,32 @@ def Crackling(configMngr):
                                 failedCount += 1
                             else:
                                 possibleTargets[target23]['passedSecondaryStructure'] = CODE_ACCEPTED # accept due to this reason
-                    i+=1
+
 
             printer('\t{} of {} failed here.'.format(
                 failedCount,
                 testedCount
             ))
-        
+            
+            if errorCount > 0:
+                printer('\t{} of {} erred here.'.format(
+                    errorCount,
+                    testedCount
+                ))
+            
+            if notFoundCount > 0:
+                printer('\t{} of {} not found in RNAfold output.'.format(
+                    notFoundCount,
+                    testedCount
+                ))
+
+            #printer(f"\tmm10db equiv: {sum([(possibleTargets[target23]['passedAvoidLeadingT'] and possibleTargets[target23]['passedATPercent'] and possibleTargets[target23]['passedTTTT'] and possibleTargets[target23]['passedSecondaryStructure']) for target23 in possibleTargets])}")
+            
         #########################################
         ##         Calc mm10db result          ##
         ######################################### 
         if (configMngr['consensus'].getboolean('mm10db')):
-            printer('Calculating mm10db result.')
+            printer('Calculating mm10db final result.')
 
             acceptedCount = 0
             failedCount = 0
@@ -435,10 +596,10 @@ def Crackling(configMngr):
             for target23 in possibleTargets:
                 if (
                     # reject if: failed any tests or guide is on + starting with T or guide is on - ending with A
-                    possibleTargets[target23]['passedAT2065'] == 0               or     # accepted when tested on AT2065
-                    possibleTargets[target23]['passedTTTT'] == 0                 or     # accepted when tested on TTTT
-                    possibleTargets[target23]['passedSecondaryStructure'] == 0   or
-                    ((target23[-2:] == 'GG' and target23[0] == 'T') or (target23[:2] == 'CC' and target23[-1] == 'A'))        # accepted when tested on SS
+                    possibleTargets[target23]['passedATPercent'] != CODE_ACCEPTED            or     # rejected when tested on ATPercent
+                    possibleTargets[target23]['passedTTTT'] != CODE_ACCEPTED                 or     # rejected when tested on TTTT
+                    possibleTargets[target23]['passedSecondaryStructure'] != CODE_ACCEPTED   or     # rejected due to secondary structure
+                    possibleTargets[target23]['passedAvoidLeadingT'] != CODE_ACCEPTED               # rejected as it started with a T (+) or ended with an A (-)
                 ):
                     # mm10db rejected the guide
                     possibleTargets[target23]['acceptedByMm10db'] = CODE_REJECTED # reject due to this reason
@@ -461,7 +622,7 @@ def Crackling(configMngr):
         ##         sgRNAScorer 2.0 model       ##
         ######################################### 
         if (configMngr['consensus'].getboolean('sgRNAScorer2')):
-            printer('Calculating sgRNAScorer2 scores.')
+            printer('sgRNAScorer2 - score using model.')
 
             clfLinear = joblib.load(configMngr['sgrnascorer2']['model'])
 
@@ -475,21 +636,22 @@ def Crackling(configMngr):
                 # if it is only one test away from passing (threshold - 1) then use the sgRNAScorer2 model
                 # if it has already passed the threshold then don't bother
                 
-                currentConsensus = ((int)(possibleTargets[target23]['acceptedByMm10db'] == 1) +    # mm10db accepted
-                    (int)(possibleTargets[target23]['passedG20'] == 1))                            # chopchop-g20 accepted
+                currentConsensus = ((int)(possibleTargets[target23]['acceptedByMm10db'] == CODE_ACCEPTED) +    # mm10db accepted
+                    (int)(possibleTargets[target23]['passedG20'] == CODE_ACCEPTED))                            # chopchop-g20 accepted
+
+                # 5991
+                #if possibleTargets[target23]['seqCount'] != 1:# or possibleTargets[target23]['start'] > :
+                    #continue
                 
-                if (currentConsensus == (int(configMngr['consensus']['n']) - 1)):
+                #if (currentConsensus == (int(configMngr['consensus']['n']) - 1)):
+                if True:
                     sequence = target23.upper()
                     entryList = []
                     testedCount += 1
 
-                    x = 0 
-                    while x < 20:
-                        y = 0
-                        while y < 4:
+                    for x in range(0, 20):
+                        for y in range(0, 4):
                             entryList.append(int(encoding[sequence[x]][y]))
-                            y += 1
-                        x += 1
 
                     # predict based on the entry
                     prediction = clfLinear.predict([entryList])
@@ -507,188 +669,218 @@ def Crackling(configMngr):
                 failedCount,
                 testedCount
             ))
+           
+        #########################################
+        ##                 G20                 ##
+        #########################################
+        if (configMngr['consensus'].getboolean('CHOPCHOP')):
+            printer('CHOPCHOP - remove those without G in position 20.')
 
+            failedCount = 0
+            for target23 in possibleTargets:
+                if target23[19] != 'G':
+                    possibleTargets[target23]['passedG20'] = CODE_REJECTED # reject due to this reason
+                    failedCount += 1
+                else:
+                    possibleTargets[target23]['passedG20'] = CODE_ACCEPTED # accept due to this reason
+
+            printer('\t{} of {} failed here.'.format(
+                failedCount,
+                len(possibleTargets)
+            ))     
 
         #########################################
         ##      Begin efficacy consensus       ##
         ######################################### 
         printer('Beginning efficacy consensus.')
-
+        
+        failedCount = 0
         for target23 in possibleTargets:
             possibleTargets[target23]['consensusCount'] = (
-                (int)(possibleTargets[target23]['acceptedByMm10db'] == 1)          +     # mm10db accepted
-                (int)(possibleTargets[target23]['acceptedBySgRnaScorer'] == 1)     +     # sgrnascorer2 accepted
-                (int)(possibleTargets[target23]['passedG20'] == 1)                       # chopchop-g20 accepted
+                (int)(possibleTargets[target23]['acceptedByMm10db'] == CODE_ACCEPTED)          +     # mm10db accepted
+                (int)(possibleTargets[target23]['acceptedBySgRnaScorer'] == CODE_ACCEPTED)     +     # sgrnascorer2 accepted
+                (int)(possibleTargets[target23]['passedG20'] == CODE_ACCEPTED)                       # chopchop-g20 accepted
             )
-
-
-        ###############################################
-        ##         Using Bowtie for positioning      ##
-        ###############################################
-        printer('Bowtie analysis.')
-        
-        printer('\tConstructing the Bowtie input file.')
-        
-        tempTargetDict_offset = {}
-        testedCount = 0
-        with open(configMngr['bowtie2']['input'], 'w') as fWriteBowtie:
-            for target23 in possibleTargets:
-            
-                if possibleTargets[target23]['consensusCount'] >= int(configMngr['consensus']['n']):
-                    testedCount += 1
-                    similarTargets = [
-                        target23[0:20] + "AGG", 
-                        target23[0:20] + "CGG", 
-                        target23[0:20] + "GGG", 
-                        target23[0:20] + "TGG", 
-                        target23[0:20] + "AAG", 
-                        target23[0:20] + "CAG", 
-                        target23[0:20] + "GAG", 
-                        target23[0:20] + "TAG"
-                    ]
-                    
-                    for seq in similarTargets:
-                        fWriteBowtie.write(seq + "\n")
-                        tempTargetDict_offset[seq] = target23
-                
-        printer('\tFile ready. Calling Bowtie.')
-        
-        caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
-           configMngr['bowtie2']['binary'],
-           configMngr['input']['bowtie2-index'],
-           configMngr['bowtie2']['threads'],
-           configMngr['bowtie2']['input'],
-           configMngr['bowtie2']['output'])
-        ,shell=True)       
-        
-        printer('\tStarting to process the Bowtie results.')
-        
-        inFile = open(configMngr['bowtie2']['output'],'r')
-        bowtieLines = inFile.readlines()
-        inFile.close()
-        
-        i=0
-        failedCount = 0
-        while i<len(bowtieLines):
-            nb_occurences = 0
-            # we extract the read and use the dictionnary to find the corresponding target
-            line = bowtieLines[i].rstrip().split("\t")
-            chr = line[2]
-            pos = ast.literal_eval(line[3])
-            read = line[9]
-            seq = ""
-            
-            if read in tempTargetDict_offset:
-                seq = tempTargetDict_offset[read]
-            elif rc(read) in tempTargetDict_offset:
-                seq = tempTargetDict_offset[rc(read)]
-            else:
-                print("Problem? "+read)
-        
-            if seq[:-2] == 'GG':
-                possibleTargets[seq]['bowtieChr'] = chr
-                possibleTargets[seq]['bowtieStart'] = pos
-                possibleTargets[seq]['bowtieEnd'] = pos + 22
-            elif rc(seq)[:2] == 'CC':
-                possibleTargets[seq]['bowtieChr'] = chr
-                possibleTargets[seq]['bowtieStart'] = pos
-                possibleTargets[seq]['bowtieEnd'] = pos + 22
-            else:
-                print("Error? "+seq)
-                quit()  
-                
-            # we count how many of the eight reads for this target have a perfect alignment
-            for j in range(i,i+8):
-            
-                # http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml#sam-output
-                # XM:i:<N>    The number of mismatches in the alignment. Only present if SAM record is for an aligned read.
-                # XS:i:<N>    Alignment score for the best-scoring alignment found other than the alignment reported.
-                
-                if "XM:i:0" in bowtieLines[j]:
-                    nb_occurences += 1
-                    
-                    # we also check whether this perfect alignment also happens elsewhere
-                    if "XS:i:0"  in bowtieLines[j]:
-                        nb_occurences += 1
-        
-            # if that number is at least two, the target is removed
-            if nb_occurences > 1:
-                possibleTargets[seq]['passedBowtie'] = CODE_REJECTED # reject due to this reason
+            if possibleTargets[target23]['consensusCount'] < int(configMngr['consensus']['n']):
                 failedCount += 1
-            else:
-                possibleTargets[seq]['passedBowtie'] = CODE_ACCEPTED # accept due to this reason
                 
-            # we continue with the next target
-            i+=8
-        
-        # we can remove the dictionary
-        del tempTargetDict_offset
-        
         printer('\t{} of {} failed here.'.format(
             failedCount,
-            testedCount
-        ))
-        
-        
-        #########################################
-        ##      Begin off-target scoring       ##
-        #########################################   
-        printer('Beginning off-target scoring.')
-        
-        i=0
-        targetsToRemove=[]
-        
-        # prepare the list of candidate guides to score
-        testedCount = 0
-        
-        with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
-            for target23 in possibleTargets:
+            len(possibleTargets)
+        ))     
+
+        if (configMngr['offtargetscore'].getboolean('enabled')):
+            #### BEGIN: REMOVE OFF-TARGET SCORING
+            
+            ###############################################
+            ##         Using Bowtie for positioning      ##
+            ###############################################
+            printer('Bowtie analysis.')
+            
+            printer('\tConstructing the Bowtie input file.')
+            
+            tempTargetDict_offset = {}
+            testedCount = 0
+            with open(configMngr['bowtie2']['input'], 'w') as fWriteBowtie:
+                for target23 in possibleTargets:
                 
-                if possibleTargets[target23]['consensusCount'] >= int(configMngr['consensus']['n']) and \
-                    possibleTargets[target23]['passedBowtie'] == 1:
-                    target = target23[0:20]
-                    fTargetsToScore.write(target+"\n")
-                    testedCount += 1
-         
-        printer('\t{} to calculate scores.'.format(
-            testedCount
-        ))
-        
-        # call the scoring method
-        caller(
-            ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
-                configMngr['offtargetscore']['binary'],
-                configMngr['input']['offtarget-sites'],
-                configMngr['offtargetscore']['input'],
-                str(configMngr['offtargetscore']['max-distance']),
-                str(configMngr['offtargetscore']['score-threshold']),
-                configMngr['offtargetscore']['output'],
-            )],
-            shell = True
-        )
-        
-        targetsScored = {}
-        with open(configMngr['offtargetscore']['output'], 'r') as fTargetsScored:
-            for targetScored in [x.split('\t') for x in fTargetsScored.readlines()]:
-                if len(targetScored) == 2:
-                    targetsScored[targetScored[0]] = float(targetScored[1].strip())
-        
-        failedCount = 0
-        for target23 in possibleTargets:
-            if target23[0:20] in targetsScored:
-                score = targetsScored[target23[0:20]]
-                possibleTargets[target23]['offtargetscore'] = score
+                    if possibleTargets[target23]['consensusCount'] >= int(configMngr['consensus']['n']):
+                        testedCount += 1
+                        similarTargets = [
+                            target23[0:20] + "AGG", 
+                            target23[0:20] + "CGG", 
+                            target23[0:20] + "GGG", 
+                            target23[0:20] + "TGG", 
+                            target23[0:20] + "AAG", 
+                            target23[0:20] + "CAG", 
+                            target23[0:20] + "GAG", 
+                            target23[0:20] + "TAG"
+                        ]
+                        
+                        for seq in similarTargets:
+                            fWriteBowtie.write(seq + "\n")
+                            tempTargetDict_offset[seq] = target23
+                    
+            printer('\tFile ready. Calling Bowtie.')
+            
+            caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
+            configMngr['bowtie2']['binary'],
+            configMngr['input']['bowtie2-index'],
+            configMngr['bowtie2']['threads'],
+            configMngr['bowtie2']['input'],
+            configMngr['bowtie2']['output'])
+            ,shell=True)       
+            
+            printer('\tStarting to process the Bowtie results.')
+            
+            inFile = open(configMngr['bowtie2']['output'],'r')
+            bowtieLines = inFile.readlines()
+            inFile.close()
+            
+            i=0
+            failedCount = 0
+            while i<len(bowtieLines):
+                nb_occurences = 0
+                # we extract the read and use the dictionnary to find the corresponding target
+                line = bowtieLines[i].rstrip().split("\t")
+                chr = line[2]
+                pos = ast.literal_eval(line[3])
+                read = line[9]
+                seq = ""
                 
-                if score < float(configMngr['offtargetscore']['score-threshold']):
-                    possibleTargets[target23]['passedOffTargetScore'] = CODE_REJECTED # reject due to this reason
+                if read in tempTargetDict_offset:
+                    seq = tempTargetDict_offset[read]
+                elif rc(read) in tempTargetDict_offset:
+                    seq = tempTargetDict_offset[rc(read)]
+                else:
+                    print("Problem? "+read)
+            
+                if seq[:-2] == 'GG':
+                    possibleTargets[seq]['bowtieChr'] = chr
+                    possibleTargets[seq]['bowtieStart'] = pos
+                    possibleTargets[seq]['bowtieEnd'] = pos + 22
+                elif rc(seq)[:2] == 'CC':
+                    possibleTargets[seq]['bowtieChr'] = chr
+                    possibleTargets[seq]['bowtieStart'] = pos
+                    possibleTargets[seq]['bowtieEnd'] = pos + 22
+                else:
+                    print("Error? "+seq)
+                    quit()  
+                    
+                # we count how many of the eight reads for this target have a perfect alignment
+                for j in range(i,i+8):
+                
+                    # http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml#sam-output
+                    # XM:i:<N>    The number of mismatches in the alignment. Only present if SAM record is for an aligned read.
+                    # XS:i:<N>    Alignment score for the best-scoring alignment found other than the alignment reported.
+                    
+                    if "XM:i:0" in bowtieLines[j]:
+                        nb_occurences += 1
+                        
+                        # we also check whether this perfect alignment also happens elsewhere
+                        if "XS:i:0"  in bowtieLines[j]:
+                            nb_occurences += 1
+            
+                # if that number is at least two, the target is removed
+                if nb_occurences > 1:
+                    possibleTargets[seq]['passedBowtie'] = CODE_REJECTED # reject due to this reason
                     failedCount += 1
                 else:
-                    possibleTargets[target23]['passedOffTargetScore'] = CODE_ACCEPTED # accept due to this reason
-        
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))
+                    possibleTargets[seq]['passedBowtie'] = CODE_ACCEPTED # accept due to this reason
+                    
+                # we continue with the next target
+                i+=8
+            
+            # we can remove the dictionary
+            del tempTargetDict_offset
+            
+            printer('\t{} of {} failed here.'.format(
+                failedCount,
+                testedCount
+            ))
+            
+            
+            #########################################
+            ##      Begin off-target scoring       ##
+            #########################################   
+            printer('Beginning off-target scoring.')
+            
+            i=0
+            targetsToRemove=[]
+            
+            # prepare the list of candidate guides to score
+            testedCount = 0
+            
+            with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
+                for target23 in possibleTargets:
+                    
+                    if possibleTargets[target23]['consensusCount'] >= int(configMngr['consensus']['n']) and \
+                        possibleTargets[target23]['passedBowtie'] == 1:
+                        target = target23[0:20]
+                        fTargetsToScore.write(target+"\n")
+                        testedCount += 1
+            
+            printer('\t{} to calculate scores.'.format(
+                testedCount
+            ))
+            
+            # call the scoring method
+            caller(
+                ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
+                    configMngr['offtargetscore']['binary'],
+                    configMngr['input']['offtarget-sites'],
+                    configMngr['offtargetscore']['input'],
+                    str(configMngr['offtargetscore']['max-distance']),
+                    str(configMngr['offtargetscore']['score-threshold']),
+                    configMngr['offtargetscore']['output'],
+                )],
+                shell = True
+            )
+            
+            targetsScored = {}
+            with open(configMngr['offtargetscore']['output'], 'r') as fTargetsScored:
+                for targetScored in [x.split('\t') for x in fTargetsScored.readlines()]:
+                    if len(targetScored) == 2:
+                        targetsScored[targetScored[0]] = float(targetScored[1].strip())
+            
+            failedCount = 0
+            for target23 in possibleTargets:
+                if target23[0:20] in targetsScored:
+                    score = targetsScored[target23[0:20]]
+                    possibleTargets[target23]['offtargetscore'] = score
+                    
+                    if score < float(configMngr['offtargetscore']['score-threshold']):
+                        possibleTargets[target23]['passedOffTargetScore'] = CODE_REJECTED # reject due to this reason
+                        failedCount += 1
+                    else:
+                        possibleTargets[target23]['passedOffTargetScore'] = CODE_ACCEPTED # accept due to this reason
+            
+            printer('\t{} of {} failed here.'.format(
+                failedCount,
+                testedCount
+            ))
+            
+            #### END: REMOVE OFF-TARGET SCORING
           
         #########################################
         ##           Begin output              ##
@@ -742,7 +934,12 @@ def Crackling(configMngr):
         
         lastRunTimeSec = time.time() - start_time
         totalRunTimeSec += lastRunTimeSec
-        
+    
+    printer('Total run time (dd hh:mm:ss) {} or {} seconds'.format(
+        strftime("%d %H:%M:%S", gmtime(totalRunTimeSec)), 
+        totalRunTimeSec
+    ))   
+    
 if __name__ == '__main__':
     # load in config
     parser = argparse.ArgumentParser()
