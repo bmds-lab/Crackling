@@ -142,12 +142,6 @@ def Crackling(configMngr):
         
         module = module.lower()
         
-        #MODULE_MM10DB = 'mm10db'
-        #MODULE_SGRNASCORER2 = 'sgrnascorer2'
-        #MODULE_CHOPCHOP = 'chopchop'
-        #MODULE_CONSENSUS = 'consensus'
-        #MODULE_SPECIFICITY = 'specificity'
-        
         optimisation = configMngr['general']['optimisation']
         
         consensusN = int(configMngr['consensus']['n'])
@@ -244,7 +238,11 @@ def Crackling(configMngr):
     ###################################
     ##   Processing the input file   ##
     ###################################
-    printer('Analysing files...')
+    printer('Analysing files...') 
+    
+    # key: FASTA header, value: sequence
+    seqsByHeader = {}
+    
     for seqFilePath in configMngr.getIterFilesToProcess():
         printer('Identifying possible target sites in: {}'.format(
             seqFilePath
@@ -261,32 +259,27 @@ def Crackling(configMngr):
         lastScaffoldSizeBytes = os.path.getsize(seqFilePath)
 
         completedSizeBytes += lastScaffoldSizeBytes
-        
-        # key: FASTA header, value: sequence
-        seqsInFile = {}
 
         with open(seqFilePath, 'r') as inFile:
             previousHeader = seqFilePath
             for line in inFile:
                 line = line.strip()
                 if line[0] == '>':
-                    seqsInFile[line[1:]] = ""
+                    seqsByHeader[line[1:]] = ""
                     previousHeader = line[1:]
                     continue
                 else:
-                    if previousHeader not in seqsInFile:
+                    if previousHeader not in seqsByHeader:
                         # it could be a plain text file, without a header
-                        seqsInFile[previousHeader] = ""
+                        seqsByHeader[previousHeader] = ""
                         
-                    seqsInFile[previousHeader] += line.strip()
-
-        #printer(f"The file contained {len(seqsInFile)} sequence(s). The length of the sequence(s): {', '.join([str(len(seqsInFile[x])) for x in seqsInFile])}")
+                    seqsByHeader[previousHeader] += line.strip()
 
         pattern_forward = r"(?=([ATCG]{21}GG))"
         pattern_reverse = r"(?=(CC[ACGT]{21}))"
 
-        for seqHeader in seqsInFile:
-            seq = seqsInFile[seqHeader]
+        for seqHeader in seqsByHeader:
+            seq = seqsByHeader[seqHeader]
             
             # once for forward, once for reverse
             for pattern, strand, seqModifier in [
@@ -311,6 +304,8 @@ def Crackling(configMngr):
                         candidateGuides[target23]['end'] = CODE_AMBIGUOUS
                         candidateGuides[target23]['strand'] = CODE_AMBIGUOUS
 
+    del seqsByHeader
+
     printer('Identified {} possible target sites.'.format(
         len(candidateGuides)
     ))
@@ -326,10 +321,10 @@ def Crackling(configMngr):
         for target23 in filterCandidateGuides(candidateGuides, MODULE_MM10DB):
             if (target23[-2:] == 'GG' and target23[0] == 'T') or \
                 (target23[:2] == 'CC' and target23[-1] == 'A'):
-                candidateGuides[target23]['passedAvoidLeadingT'] = CODE_REJECTED # reject due to this reason
+                candidateGuides[target23]['passedAvoidLeadingT'] = CODE_REJECTED
                 failedCount += 1
             else:
-                candidateGuides[target23]['passedAvoidLeadingT'] = CODE_ACCEPTED # accept due to this reason
+                candidateGuides[target23]['passedAvoidLeadingT'] = CODE_ACCEPTED
             
             testedCount += 1
             
@@ -348,12 +343,12 @@ def Crackling(configMngr):
         testedCount = 0
         for target23 in filterCandidateGuides(candidateGuides, MODULE_MM10DB):
             AT = AT_percentage(target23[0:20])
-            #if AT < 45:
+
             if AT < 20 or AT > 65:
-                candidateGuides[target23]['passedATPercent'] = CODE_REJECTED # reject due to this reason
+                candidateGuides[target23]['passedATPercent'] = CODE_REJECTED
                 failedCount += 1
             else:
-                candidateGuides[target23]['passedATPercent'] = CODE_ACCEPTED # accept due to this reason
+                candidateGuides[target23]['passedATPercent'] = CODE_ACCEPTED
             
             candidateGuides[target23]['AT'] = AT
             
@@ -374,10 +369,10 @@ def Crackling(configMngr):
         testedCount = 0
         for target23 in filterCandidateGuides(candidateGuides, MODULE_MM10DB):
             if "TTTT" in target23:
-                candidateGuides[target23]['passedTTTT'] = CODE_REJECTED # reject due to this reason
+                candidateGuides[target23]['passedTTTT'] = CODE_REJECTED
                 failedCount += 1
             else:
-                candidateGuides[target23]['passedTTTT'] = CODE_ACCEPTED # accept due to this reason
+                candidateGuides[target23]['passedTTTT'] = CODE_ACCEPTED
            
             testedCount += 1
             
@@ -389,7 +384,6 @@ def Crackling(configMngr):
     ##########################################
     ##   Calculating secondary structures   ##
     ##########################################
-    # Do not check SS if any other of mm10db's checks have already failed   
     if (configMngr['consensus'].getboolean('mm10db')):
         printer('mm10db - check secondary structure.')
 
@@ -404,18 +398,21 @@ def Crackling(configMngr):
 
         printer('\tConstructing the RNAfold input file.')
 
-
         testedCount = 0
         with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
-            for target23 in filterCandidateGuides(candidateGuides, MODULE_MM10DB):
-                fRnaInput.write(
-                    "G{}{}\n".format(
-                        target23[1:20], 
-                        guide
+            for target23 in candidateGuides:
+                # we only guides that have passed for mm10db's test so far
+                if  candidateGuides[target23]['passedAvoidLeadingT'] == 1 and \
+                    candidateGuides[target23]['passedATPercent'] == 1 and \
+                    candidateGuides[target23]['passedTTTT'] == 1:
+                    fRnaInput.write(
+                        "G{}{}\n".format(
+                            target23[1:20], 
+                            guide
+                        )
                     )
-                )
-                
-                testedCount += 1
+                    
+                    testedCount += 1
                     
         printer('\tFile ready. {} to calculate.'.format(
             testedCount
@@ -454,51 +451,51 @@ def Crackling(configMngr):
         failedCount = 0
         errorCount = 0
         notFoundCount = 0 
-        for target23 in filterCandidateGuides(candidateGuides, MODULE_MM10DB):
-            key = target23[1:20]
-            if key not in RNAstructures:
-                print(f"Could not find: {target23[0:20]}")
-                notFoundCount += 1
-                continue
-            else:
-                L1 = RNAstructures[key][0]
-                L2 = RNAstructures[key][1]
-                target = RNAstructures[key][2]
-
-            structure = L2.split(" ")[0]
-            energy = L2.split(" ")[1][1:-1]
-            
-            candidateGuides[target23]['ssL1'] = L1
-            candidateGuides[target23]['ssStructure'] = structure
-            candidateGuides[target23]['ssEnergy'] = energy
-            
-            if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
-                candidateGuides[target23]['passedSecondaryStructure'] = CODE_ERROR
-                #print(
-                #    f"Error?",
-                #    target23,
-                #    target
-                #)
-                errorCount += 1
-                continue
-
-            match_structure = re.search(pattern_RNAstructure, L2)
-            if match_structure:
-                energy = ast.literal_eval(match_structure.group(1))
-                if energy < float(configMngr['rnafold']['low_energy_threshold']):
-                    candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED # reject due to this reason
-                    failedCount += 1
+        for target23 in candidateGuides:
+            # we only guides that have passed for mm10db's test so far
+            if  candidateGuides[target23]['passedAvoidLeadingT'] == 1 and \
+                candidateGuides[target23]['passedATPercent'] == 1 and \
+                candidateGuides[target23]['passedTTTT'] == 1:
+                
+                key = target23[1:20]
+                if key not in RNAstructures:
+                    print(f"Could not find: {target23[0:20]}")
+                    notFoundCount += 1
+                    continue
                 else:
-                    candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED # accept due to this reason
-            else:
-                match_energy = re.search(pattern_RNAenergy, L2)
-                if match_energy:
-                    energy = ast.literal_eval(match_energy.group(1))
-                    if energy <= float(configMngr['rnafold']['high_energy_threshold']):
-                        candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED # reject due to this reason
+                    L1 = RNAstructures[key][0]
+                    L2 = RNAstructures[key][1]
+                    target = RNAstructures[key][2]
+
+                structure = L2.split(" ")[0]
+                energy = L2.split(" ")[1][1:-1]
+                
+                candidateGuides[target23]['ssL1'] = L1
+                candidateGuides[target23]['ssStructure'] = structure
+                candidateGuides[target23]['ssEnergy'] = energy
+                
+                if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
+                    candidateGuides[target23]['passedSecondaryStructure'] = CODE_ERROR
+                    errorCount += 1
+                    continue
+
+                match_structure = re.search(pattern_RNAstructure, L2)
+                if match_structure:
+                    energy = ast.literal_eval(match_structure.group(1))
+                    if energy < float(configMngr['rnafold']['low_energy_threshold']):
+                        candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED
                         failedCount += 1
                     else:
-                        candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED # accept due to this reason
+                        candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
+                else:
+                    match_energy = re.search(pattern_RNAenergy, L2)
+                    if match_energy:
+                        energy = ast.literal_eval(match_energy.group(1))
+                        if energy <= float(configMngr['rnafold']['high_energy_threshold']):
+                            candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED
+                            failedCount += 1
+                        else:
+                            candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
 
 
         printer('\t{} of {} failed here.'.format(
@@ -528,18 +525,17 @@ def Crackling(configMngr):
         failedCount = 0
         
         for target23 in candidateGuides:
-            if (
-                # reject if: failed any tests or guide is on + starting with T or guide is on - ending with A
-                candidateGuides[target23]['passedATPercent'] != CODE_ACCEPTED            or     # rejected when tested on ATPercent
-                candidateGuides[target23]['passedTTTT'] != CODE_ACCEPTED                 or     # rejected when tested on TTTT
-                candidateGuides[target23]['passedSecondaryStructure'] != CODE_ACCEPTED   or     # rejected due to secondary structure
-                candidateGuides[target23]['passedAvoidLeadingT'] != CODE_ACCEPTED               # rejected as it started with a T (+) or ended with an A (-)
-            ):
+            if (CODE_REJECTED in [
+                candidateGuides[target23]['passedATPercent'],
+                candidateGuides[target23]['passedTTTT'],
+                candidateGuides[target23]['passedSecondaryStructure'],
+                candidateGuides[target23]['passedAvoidLeadingT'],
+            ]):
                 # mm10db rejected the guide
-                candidateGuides[target23]['acceptedByMm10db'] = CODE_REJECTED # reject due to this reason
+                candidateGuides[target23]['acceptedByMm10db'] = CODE_REJECTED
                 failedCount += 1
             else:
-                candidateGuides[target23]['acceptedByMm10db'] = CODE_ACCEPTED # accept due to this reason
+                candidateGuides[target23]['acceptedByMm10db'] = CODE_ACCEPTED
                 acceptedCount += 1
 
         printer('\t{} accepted.'.format(
@@ -586,10 +582,10 @@ def Crackling(configMngr):
             candidateGuides[target23]['sgrnascorer2score'] = score
 
             if float(score) < float(float(configMngr['sgrnascorer2']['score-threshold'])):
-                candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_REJECTED # reject due to this reason
+                candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_REJECTED
                 failedCount += 1
             else:
-                candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_ACCEPTED # accept due to this reason
+                candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_ACCEPTED
                         
         printer('\t{} of {} failed here.'.format(
             failedCount,
@@ -606,10 +602,10 @@ def Crackling(configMngr):
         testedCount = 0
         for target23 in filterCandidateGuides(candidateGuides, MODULE_CHOPCHOP):
             if target23[19] != 'G':
-                candidateGuides[target23]['passedG20'] = CODE_REJECTED # reject due to this reason
+                candidateGuides[target23]['passedG20'] = CODE_REJECTED
                 failedCount += 1
             else:
-                candidateGuides[target23]['passedG20'] = CODE_ACCEPTED # accept due to this reason
+                candidateGuides[target23]['passedG20'] = CODE_ACCEPTED
             testedCount += 1
 
         printer('\t{} of {} failed here.'.format(
@@ -671,16 +667,16 @@ def Crackling(configMngr):
         printer('\tFile ready. Calling Bowtie.')
 
         caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
-        configMngr['bowtie2']['binary'],
-        configMngr['input']['bowtie2-index'],
-        configMngr['bowtie2']['threads'],
-        configMngr['bowtie2']['input'],
-        configMngr['bowtie2']['output'])
-        ,shell=True)       
+            configMngr['bowtie2']['binary'],
+            configMngr['input']['bowtie2-index'],
+            configMngr['bowtie2']['threads'],
+            configMngr['bowtie2']['input'],
+            configMngr['bowtie2']['output'])
+        , shell=True)       
         
         printer('\tStarting to process the Bowtie results.')
         
-        inFile = open(configMngr['bowtie2']['output'],'r')
+        inFile = open(configMngr['bowtie2']['output'], 'r')
         bowtieLines = inFile.readlines()
         inFile.close()
 
@@ -688,7 +684,7 @@ def Crackling(configMngr):
         failedCount = 0
         while i<len(bowtieLines):
             nb_occurences = 0
-            # we extract the read and use the dictionnary to find the corresponding target
+            # we extract the read and use the dictionary to find the corresponding target
             line = bowtieLines[i].rstrip().split("\t")
             chr = line[2]
             pos = ast.literal_eval(line[3])
@@ -730,10 +726,10 @@ def Crackling(configMngr):
 
             # if that number is at least two, the target is removed
             if nb_occurences > 1:
-                candidateGuides[seq]['passedBowtie'] = CODE_REJECTED # reject due to this reason
+                candidateGuides[seq]['passedBowtie'] = CODE_REJECTED
                 failedCount += 1
             else:
-                candidateGuides[seq]['passedBowtie'] = CODE_ACCEPTED # accept due to this reason
+                candidateGuides[seq]['passedBowtie'] = CODE_ACCEPTED
                 
             # we continue with the next target
             i+=8
@@ -750,13 +746,10 @@ def Crackling(configMngr):
         ##      Begin off-target scoring       ##
         #########################################   
         printer('Beginning off-target scoring.')
-        
-        i=0
-        targetsToRemove=[]
-        
-        # prepare the list of candidate guides to score
+
         testedCount = 0
         
+        # prepare the list of candidate guides to score
         with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
             for target23 in filterCandidateGuides(candidateGuides, MODULE_SPECIFICITY):
                 target = target23[0:20]
@@ -793,10 +786,10 @@ def Crackling(configMngr):
                 candidateGuides[target23]['offtargetscore'] = score
                 
                 if score < float(configMngr['offtargetscore']['score-threshold']):
-                    candidateGuides[target23]['passedOffTargetScore'] = CODE_REJECTED # reject due to this reason
+                    candidateGuides[target23]['passedOffTargetScore'] = CODE_REJECTED
                     failedCount += 1
                 else:
-                    candidateGuides[target23]['passedOffTargetScore'] = CODE_ACCEPTED # accept due to this reason
+                    candidateGuides[target23]['passedOffTargetScore'] = CODE_ACCEPTED
         
         printer('\t{} of {} failed here.'.format(
             failedCount,
@@ -862,7 +855,7 @@ def Crackling(configMngr):
 if __name__ == '__main__':
     # load in config
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', help='File to process', default=None, required=True)
+    parser.add_argument('-c', help='Configuration file', default=None, required=True)
     args = parser.parse_args()
 
     configMngr = ConfigManager(args.c, lambda x : print(f'configMngr says: {x}'))
