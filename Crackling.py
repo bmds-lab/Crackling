@@ -13,75 +13,9 @@ from subprocess import call
 from time import localtime, strftime, gmtime
 
 from ConfigManager import ConfigManager
+from Paginator import Paginator
+from Constants import *
 
-CODE_ACCEPTED = 1
-CODE_REJECTED = 0
-CODE_UNTESTED = "?"
-CODE_AMBIGUOUS = "-"
-CODE_ERROR = "!"
-
-MODULE_MM10DB = 'mm10db'
-MODULE_SGRNASCORER2 = 'sgrnascorer2'
-MODULE_CHOPCHOP = 'chopchop'
-MODULE_CONSENSUS = 'consensus'
-MODULE_SPECIFICITY = 'specificity'
-
-DEFAULT_GUIDE_PROPERTIES = {
-    'seq'                       : "",
-    'header'                    : "",
-    'seqCount'                  : 1,
-    'start'                     : CODE_UNTESTED,
-    'end'                       : CODE_UNTESTED,
-    'strand'                    : CODE_UNTESTED,
-    'passedTTTT'                : CODE_UNTESTED,
-    'passedATPercent'           : CODE_UNTESTED,
-    'passedG20'                 : CODE_UNTESTED,
-    'passedSecondaryStructure'  : CODE_UNTESTED,
-    'ssL1'                      : CODE_UNTESTED,
-    'ssStructure'               : CODE_UNTESTED,
-    'ssEnergy'                  : CODE_UNTESTED,
-    'acceptedByMm10db'          : CODE_UNTESTED,
-    'acceptedBySgRnaScorer'     : CODE_UNTESTED,
-    'consensusCount'            : CODE_UNTESTED,
-    'passedBowtie'              : CODE_UNTESTED,
-    'passedOffTargetScore'      : CODE_UNTESTED,
-    'sgrnascorer2score'         : CODE_UNTESTED,
-    'AT'                        : CODE_UNTESTED,
-    'bowtieChr'                 : CODE_UNTESTED,
-    'bowtieStart'               : CODE_UNTESTED,
-    'bowtieEnd'                 : CODE_UNTESTED,
-    'offtargetscore'            : CODE_UNTESTED,
-    'passedAvoidLeadingT'       : CODE_UNTESTED,
-}
-
-DEFAULT_GUIDE_PROPERTIES_ORDER = [
-    'seq',
-    'sgrnascorer2score',
-    'header',
-    'start',
-    'end',
-    'strand',
-    'seqCount',
-    'passedG20',
-    'passedTTTT',
-    'passedATPercent',
-    'passedSecondaryStructure',
-    'ssL1',
-    'ssStructure',
-    'ssEnergy',
-    'acceptedByMm10db',
-    'acceptedBySgRnaScorer',
-    'consensusCount',
-    'passedBowtie',
-    'passedOffTargetScore',
-    'AT',
-    'bowtieChr',
-    'bowtieStart',
-    'bowtieEnd',
-    'offtargetscore',
-    'passedAvoidLeadingT',
-    #'passedReversePrimer',
-]
 
 # Function that returns the reverse-complement of a given sequence
 def rc(dna):
@@ -175,14 +109,10 @@ def Crackling(configMngr):
                         doAssess = False
 
                 # For CHOPCHOP:
-                if (module == MODULE_CHOPCHOP):
-                    # assess all candidates
-                    doAssess = True
+                # Always assess, unless the guide is seen multiple times
                         
                 # For sgRNAScorer2:
-                if (module == MODULE_SGRNASCORER2):
-                    # assess all candidates
-                    doAssess = True
+                # Always assess, unless the guide is seen multiple times
                 
                 # For specificity:
                 if (module == MODULE_SPECIFICITY):
@@ -386,116 +316,121 @@ def Crackling(configMngr):
     ##########################################
     if (configMngr['consensus'].getboolean('mm10db')):
         printer('mm10db - check secondary structure.')
+        
+        # RNAFold is memory intensive for very large datasets.
+        # We will paginate in order not to overflow memory.
 
         guide = "GUUUUAGAGCUAGAAAUAGCAAGUUAAAAUAAGGCUAGUCCGUUAUCAACUUGAAAAAGUGGCACCGAGUCGGUGCUUUU"
         pattern_RNAstructure = r".{28}\({4}\.{4}\){4}\.{3}\){4}.{21}\({4}\.{4}\){4}\({7}\.{3}\){7}\.{3}\s\((.+)\)"
         pattern_RNAenergy = r"\s\((.+)\)"
 
-        caller(
-            ["rm -f \"{}\"".format(configMngr['rnafold']['output'])], 
-            shell=True
-        )
-
-        printer('\tConstructing the RNAfold input file.')
-
         testedCount = 0
-        with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
+        failedCount = 0
+        errorCount = 0
+        notFoundCount = 0 
+
+        pgLength = int(configMngr['rnafold']['page-length'])
+
+        for pgIdx, pageCandidateGuides in Paginator(candidateGuides, pgLength):
+            
+            if pgLength > 0:
+                numPages = int(len(candidateGuides) / pgLength) + 1
+                printer(f'\tProcessing page {(pgIdx+1)} of {numPages}')
+            
+            if os.path.exists(configMngr['rnafold']['output']):
+                os.remove(configMngr['rnafold']['output'])
+
+            printer('\t\tConstructing the RNAfold input file.')
+
+            with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
+                for target23 in candidateGuides:
+                    # we only guides that have passed for mm10db's test so far
+                    if  candidateGuides[target23]['passedAvoidLeadingT'] == 1 and \
+                        candidateGuides[target23]['passedATPercent'] == 1 and \
+                        candidateGuides[target23]['passedTTTT'] == 1:
+                        fRnaInput.write(
+                            "G{}{}\n".format(
+                                target23[1:20], 
+                                guide
+                            )
+                        )
+
+            caller(
+                "{} --noPS -j{} -i \"{}\" > \"{}\"".format(
+                    configMngr['rnafold']['binary'],
+                    configMngr['rnafold']['threads'],
+                    configMngr['rnafold']['input'],
+                    configMngr['rnafold']['output']
+                ), 
+                shell=True
+            )
+
+            printer('\t\tStarting to process the RNAfold results.')
+
+            RNAstructures = {}
+            with open(configMngr['rnafold']['output'], 'r') as fRnaOutput:
+                i = 0
+                L1, L2, target = None, None, None
+                for line in fRnaOutput:
+                    if i % 2 == 0:
+                        # 0th, 2nd, 4th, etc.
+                        L1 = line.rstrip()
+                        target = L1[0:20]
+                    else:
+                        # 1st, 3rd, 5th, etc.
+                        L2 = line.rstrip()
+                        RNAstructures[transToDNA(target[1:20])] = [
+                            L1, L2, target
+                        ]
+
+                    i += 1
+
+
             for target23 in candidateGuides:
                 # we only guides that have passed for mm10db's test so far
                 if  candidateGuides[target23]['passedAvoidLeadingT'] == 1 and \
                     candidateGuides[target23]['passedATPercent'] == 1 and \
                     candidateGuides[target23]['passedTTTT'] == 1:
-                    fRnaInput.write(
-                        "G{}{}\n".format(
-                            target23[1:20], 
-                            guide
-                        )
-                    )
                     
-                    testedCount += 1
-                    
-        printer('\tFile ready. {} to calculate.'.format(
-            testedCount
-        ))
-
-        caller(
-            "{} --noPS -j{} -i \"{}\" > \"{}\"".format(
-                configMngr['rnafold']['binary'],
-                configMngr['rnafold']['threads'],
-                configMngr['rnafold']['input'],
-                configMngr['rnafold']['output']
-            ), 
-            shell=True
-        )
-
-        printer('\tStarting to process the RNAfold results.')
-
-        RNAstructures = {}
-        with open(configMngr['rnafold']['output'], 'r') as fRnaOutput:
-            i = 0
-            L1, L2, target = None, None, None
-            for line in fRnaOutput:
-                if i % 2 == 0:
-                    # 0th, 2nd, 4th, etc.
-                    L1 = line.rstrip()
-                    target = L1[0:20]
-                else:
-                    # 1st, 3rd, 5th, etc.
-                    L2 = line.rstrip()
-                    RNAstructures[transToDNA(target[1:20])] = [
-                        L1, L2, target
-                    ]
-
-                i += 1
-
-        failedCount = 0
-        errorCount = 0
-        notFoundCount = 0 
-        for target23 in candidateGuides:
-            # we only guides that have passed for mm10db's test so far
-            if  candidateGuides[target23]['passedAvoidLeadingT'] == 1 and \
-                candidateGuides[target23]['passedATPercent'] == 1 and \
-                candidateGuides[target23]['passedTTTT'] == 1:
-                
-                key = target23[1:20]
-                if key not in RNAstructures:
-                    print(f"Could not find: {target23[0:20]}")
-                    notFoundCount += 1
-                    continue
-                else:
-                    L1 = RNAstructures[key][0]
-                    L2 = RNAstructures[key][1]
-                    target = RNAstructures[key][2]
-
-                structure = L2.split(" ")[0]
-                energy = L2.split(" ")[1][1:-1]
-                
-                candidateGuides[target23]['ssL1'] = L1
-                candidateGuides[target23]['ssStructure'] = structure
-                candidateGuides[target23]['ssEnergy'] = energy
-                
-                if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
-                    candidateGuides[target23]['passedSecondaryStructure'] = CODE_ERROR
-                    errorCount += 1
-                    continue
-
-                match_structure = re.search(pattern_RNAstructure, L2)
-                if match_structure:
-                    energy = ast.literal_eval(match_structure.group(1))
-                    if energy < float(configMngr['rnafold']['low_energy_threshold']):
-                        candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED
-                        failedCount += 1
+                    key = target23[1:20]
+                    if key not in RNAstructures:
+                        print(f"Could not find: {target23[0:20]}")
+                        notFoundCount += 1
+                        continue
                     else:
-                        candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
-                else:
-                    match_energy = re.search(pattern_RNAenergy, L2)
-                    if match_energy:
-                        energy = ast.literal_eval(match_energy.group(1))
-                        if energy <= float(configMngr['rnafold']['high_energy_threshold']):
+                        L1 = RNAstructures[key][0]
+                        L2 = RNAstructures[key][1]
+                        target = RNAstructures[key][2]
+
+                    structure = L2.split(" ")[0]
+                    energy = L2.split(" ")[1][1:-1]
+                    
+                    candidateGuides[target23]['ssL1'] = L1
+                    candidateGuides[target23]['ssStructure'] = structure
+                    candidateGuides[target23]['ssEnergy'] = energy
+                    
+                    if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
+                        candidateGuides[target23]['passedSecondaryStructure'] = CODE_ERROR
+                        errorCount += 1
+                        continue
+
+                    match_structure = re.search(pattern_RNAstructure, L2)
+                    if match_structure:
+                        energy = ast.literal_eval(match_structure.group(1))
+                        if energy < float(configMngr['rnafold']['low_energy_threshold']):
                             candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED
                             failedCount += 1
                         else:
                             candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
+                    else:
+                        match_energy = re.search(pattern_RNAenergy, L2)
+                        if match_energy:
+                            energy = ast.literal_eval(match_energy.group(1))
+                            if energy <= float(configMngr['rnafold']['high_energy_threshold']):
+                                candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED
+                                failedCount += 1
+                            else:
+                                candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
 
 
         printer('\t{} of {} failed here.'.format(
@@ -641,101 +576,116 @@ def Crackling(configMngr):
         ##         Using Bowtie for positioning      ##
         ###############################################
         printer('Bowtie analysis.')
-        
-        printer('\tConstructing the Bowtie input file.')
-        
-        tempTargetDict_offset = {}
+
         testedCount = 0
-        with open(configMngr['bowtie2']['input'], 'w') as fWriteBowtie:
-            for target23 in filterCandidateGuides(candidateGuides, MODULE_SPECIFICITY):
-                testedCount += 1
-                similarTargets = [
-                    target23[0:20] + "AGG", 
-                    target23[0:20] + "CGG", 
-                    target23[0:20] + "GGG", 
-                    target23[0:20] + "TGG", 
-                    target23[0:20] + "AAG", 
-                    target23[0:20] + "CAG", 
-                    target23[0:20] + "GAG", 
-                    target23[0:20] + "TAG"
-                ]
-                
-                for seq in similarTargets:
-                    fWriteBowtie.write(seq + "\n")
-                    tempTargetDict_offset[seq] = target23
-
-        printer('\tFile ready. Calling Bowtie.')
-
-        caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
-            configMngr['bowtie2']['binary'],
-            configMngr['input']['bowtie2-index'],
-            configMngr['bowtie2']['threads'],
-            configMngr['bowtie2']['input'],
-            configMngr['bowtie2']['output'])
-        , shell=True)       
-        
-        printer('\tStarting to process the Bowtie results.')
-        
-        inFile = open(configMngr['bowtie2']['output'], 'r')
-        bowtieLines = inFile.readlines()
-        inFile.close()
-
-        i=0
         failedCount = 0
-        while i<len(bowtieLines):
-            nb_occurences = 0
-            # we extract the read and use the dictionary to find the corresponding target
-            line = bowtieLines[i].rstrip().split("\t")
-            chr = line[2]
-            pos = ast.literal_eval(line[3])
-            read = line[9]
-            seq = ""
-            
-            if read in tempTargetDict_offset:
-                seq = tempTargetDict_offset[read]
-            elif rc(read) in tempTargetDict_offset:
-                seq = tempTargetDict_offset[rc(read)]
-            else:
-                print("Problem? "+read)
-        
-            if seq[:-2] == 'GG':
-                candidateGuides[seq]['bowtieChr'] = chr
-                candidateGuides[seq]['bowtieStart'] = pos
-                candidateGuides[seq]['bowtieEnd'] = pos + 22
-            elif rc(seq)[:2] == 'CC':
-                candidateGuides[seq]['bowtieChr'] = chr
-                candidateGuides[seq]['bowtieStart'] = pos
-                candidateGuides[seq]['bowtieEnd'] = pos + 22
-            else:
-                print("Error? "+seq)
-                quit()  
-                
-            # we count how many of the eight reads for this target have a perfect alignment
-            for j in range(i,i+8):
-            
-                # http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml#sam-output
-                # XM:i:<N>    The number of mismatches in the alignment. Only present if SAM record is for an aligned read.
-                # XS:i:<N>    Alignment score for the best-scoring alignment found other than the alignment reported.
-                
-                if "XM:i:0" in bowtieLines[j]:
-                    nb_occurences += 1
-                    
-                    # we also check whether this perfect alignment also happens elsewhere
-                    if "XS:i:0"  in bowtieLines[j]:
-                        nb_occurences += 1
 
-            # if that number is at least two, the target is removed
-            if nb_occurences > 1:
-                candidateGuides[seq]['passedBowtie'] = CODE_REJECTED
-                failedCount += 1
-            else:
-                candidateGuides[seq]['passedBowtie'] = CODE_ACCEPTED
+        pgLength = int(configMngr['bowtie2']['page-length'])
+
+        for pgIdx, pageCandidateGuides in Paginator(
+            filterCandidateGuides(candidateGuides, MODULE_SPECIFICITY), 
+            pgLength
+        ):
+
+            if pgLength > 0:
+                numPages = int(len(candidateGuides) / pgLength) + 1
+                printer(f'\tProcessing page {(pgIdx+1)} of {numPages}')
+            
+            if os.path.exists(configMngr['bowtie2']['output']):
+                os.remove(configMngr['bowtie2']['output'])
+
+            printer('\tConstructing the Bowtie input file.')
+            
+            tempTargetDict_offset = {}
+            with open(configMngr['bowtie2']['input'], 'w') as fWriteBowtie:
+                for target23 in pageCandidateGuides:
+                    testedCount += 1
+                    similarTargets = [
+                        target23[0:20] + "AGG", 
+                        target23[0:20] + "CGG", 
+                        target23[0:20] + "GGG", 
+                        target23[0:20] + "TGG", 
+                        target23[0:20] + "AAG", 
+                        target23[0:20] + "CAG", 
+                        target23[0:20] + "GAG", 
+                        target23[0:20] + "TAG"
+                    ]
+                    
+                    for seq in similarTargets:
+                        fWriteBowtie.write(seq + "\n")
+                        tempTargetDict_offset[seq] = target23
+
+            printer('\tFile ready. Calling Bowtie.')
+
+            caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
+                configMngr['bowtie2']['binary'],
+                configMngr['input']['bowtie2-index'],
+                configMngr['bowtie2']['threads'],
+                configMngr['bowtie2']['input'],
+                configMngr['bowtie2']['output'])
+            , shell=True)       
+            
+            printer('\tStarting to process the Bowtie results.')
+            
+            inFile = open(configMngr['bowtie2']['output'], 'r')
+            bowtieLines = inFile.readlines()
+            inFile.close()
+
+            i=0
+            while i<len(bowtieLines):
+                nb_occurences = 0
+                # we extract the read and use the dictionary to find the corresponding target
+                line = bowtieLines[i].rstrip().split("\t")
+                chr = line[2]
+                pos = ast.literal_eval(line[3])
+                read = line[9]
+                seq = ""
                 
-            # we continue with the next target
-            i+=8
-        
-        # we can remove the dictionary
-        del tempTargetDict_offset
+                if read in tempTargetDict_offset:
+                    seq = tempTargetDict_offset[read]
+                elif rc(read) in tempTargetDict_offset:
+                    seq = tempTargetDict_offset[rc(read)]
+                else:
+                    print("Problem? "+read)
+            
+                if seq[:-2] == 'GG':
+                    candidateGuides[seq]['bowtieChr'] = chr
+                    candidateGuides[seq]['bowtieStart'] = pos
+                    candidateGuides[seq]['bowtieEnd'] = pos + 22
+                elif rc(seq)[:2] == 'CC':
+                    candidateGuides[seq]['bowtieChr'] = chr
+                    candidateGuides[seq]['bowtieStart'] = pos
+                    candidateGuides[seq]['bowtieEnd'] = pos + 22
+                else:
+                    print("Error? "+seq)
+                    quit()  
+                    
+                # we count how many of the eight reads for this target have a perfect alignment
+                for j in range(i,i+8):
+                
+                    # http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml#sam-output
+                    # XM:i:<N>    The number of mismatches in the alignment. Only present if SAM record is for an aligned read.
+                    # XS:i:<N>    Alignment score for the best-scoring alignment found other than the alignment reported.
+                    
+                    if "XM:i:0" in bowtieLines[j]:
+                        nb_occurences += 1
+                        
+                        # we also check whether this perfect alignment also happens elsewhere
+                        if "XS:i:0"  in bowtieLines[j]:
+                            nb_occurences += 1
+
+                # if that number is at least two, the target is removed
+                if nb_occurences > 1:
+                    candidateGuides[seq]['passedBowtie'] = CODE_REJECTED
+                    failedCount += 1
+                else:
+                    candidateGuides[seq]['passedBowtie'] = CODE_ACCEPTED
+                    
+                # we continue with the next target
+                i+=8
+            
+            # we can remove the dictionary
+            del tempTargetDict_offset
         
         printer('\t{} of {} failed here.'.format(
             failedCount,

@@ -205,14 +205,7 @@ class ConfigManager():
             self._filesToProcess = glob.glob(self._ConfigParser['input']['exon-sequences'])          
     
     def _duplicateCracklingCodeAndConfig(self):
-        # Config file
-        filename, fileext = os.path.splitext(self._configFilePath)
-        newFile = os.path.join(self._ConfigParser['output']['dir'], f"{filename}{fileext}.backup")
-        copyfile(self._configFilePath, newFile)
-        
-        # Crackling
-        newFile = os.path.join(self._ConfigParser['output']['dir'], f"Crackling.py.backup")
-        copyfile('Crackling.py', newFile)
+        pass
     
     def getConfigName(self):
         return self._ConfigParser['general']['name'] or self._fallbackName
