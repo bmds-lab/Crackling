@@ -259,6 +259,16 @@ class ConfigManager():
                 self.getConfigName())
             )
         )
+        
+    def getErrLogMethod(self):
+        from Logger import Logger
+        return Logger(os.path.join(
+            self._ConfigParser['output']['dir'], 
+            '{}-{}.errlog'.format(
+                self._ConfigParser['general']['name'],
+                self.getConfigName())
+            )
+        )
 
     
 if __name__ == '__main__':

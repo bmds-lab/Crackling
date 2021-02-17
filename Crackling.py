@@ -19,7 +19,11 @@ def Crackling(configMngr):
     totalSizeBytes = configMngr.getDatasetSizeBytes()
     completedSizeBytes = 0
 
+    _stdout = sys.stdout
+    _stderr = sys.stderr
+    
     sys.stdout = configMngr.getLogMethod()
+    sys.stderr = configMngr.getErrLogMethod()
 
     lastRunTimeSec = 0
     lastScaffoldSizeBytes = 0
@@ -122,6 +126,10 @@ def Crackling(configMngr):
                     # don't assess if they failed consensus
                     if (int(candidateGuides[target23]['consensusCount']) < consensusN):
                         doAssess = False
+                    
+                    # don't assess if they failed Bowtie
+                    if (candidateGuides[target23]['passedBowtie'] == CODE_REJECTED):
+                        doAssess = False
 
             if doAssess:
                 yield target23
@@ -134,12 +142,12 @@ def Crackling(configMngr):
     # key: FASTA header, value: sequence
     seqsByHeader = {}
     
+    numberOfDuplicateGuides = 0
+    
     for seqFilePath in configMngr.getIterFilesToProcess():
         printer('Identifying possible target sites in: {}'.format(
             seqFilePath
         ))
-
-        sys.stdout.log.flush()
 
         printer('{} of {} bytes processed ({}%)'.format(
             completedSizeBytes,
@@ -194,12 +202,14 @@ def Crackling(configMngr):
                         candidateGuides[target23]['start'] = CODE_AMBIGUOUS
                         candidateGuides[target23]['end'] = CODE_AMBIGUOUS
                         candidateGuides[target23]['strand'] = CODE_AMBIGUOUS
+                        
+                        numberOfDuplicateGuides += 1
 
     del seqsByHeader
 
-    printer('Identified {} possible target sites.'.format(
-        len(candidateGuides)
-    ))
+    printer(f'Identified {len(candidateGuides)} possible target sites.')
+    
+    printer(f'\t{numberOfDuplicateGuides} of {len(candidateGuides)} were seen more than once.')
 
     ############################################
     ##     Removing targets with leading T    ##
@@ -219,10 +229,7 @@ def Crackling(configMngr):
             
             testedCount += 1
             
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))
+        printer(f'\t{failedCount} of {testedCount} failed here.')
 
     #########################################
     ##    AT% ideally is between 20-65%    ##
@@ -245,10 +252,7 @@ def Crackling(configMngr):
             
             testedCount += 1
             
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))
+        printer(f'\t{failedCount} of {testedCount} failed here.')
 
     ############################################
     ##   Removing targets that contain TTTT   ##
@@ -267,10 +271,7 @@ def Crackling(configMngr):
            
             testedCount += 1
             
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))
+        printer(f'\t{failedCount} of {testedCount} failed here.')
 
     ##########################################
     ##   Calculating secondary structures   ##
@@ -292,29 +293,31 @@ def Crackling(configMngr):
 
         pgLength = int(configMngr['rnafold']['page-length'])
 
-        for pgIdx, pageCandidateGuides in Paginator(candidateGuides, pgLength):
-            
+        for pgIdx, pageCandidateGuides in Paginator(
+            filterCandidateGuides(candidateGuides, MODULE_MM10DB), 
+            pgLength
+        ):   
             if pgLength > 0:
                 numPages = int(len(candidateGuides) / pgLength) + 1
-                printer(f'\tProcessing page {(pgIdx+1)} of {numPages}')
+                printer(f'\tProcessing page {(pgIdx+1)} of {numPages} ({pgLength} per page).')
             
             if os.path.exists(configMngr['rnafold']['output']):
                 os.remove(configMngr['rnafold']['output'])
 
             printer('\t\tConstructing the RNAfold input file.')
 
+            guidesInPage = 0
             with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
-                for target23 in candidateGuides:
-                    # we only guides that have passed for mm10db's test so far
-                    if  candidateGuides[target23]['passedAvoidLeadingT'] == 1 and \
-                        candidateGuides[target23]['passedATPercent'] == 1 and \
-                        candidateGuides[target23]['passedTTTT'] == 1:
-                        fRnaInput.write(
-                            "G{}{}\n".format(
-                                target23[1:20], 
-                                guide
-                            )
+                for target23 in pageCandidateGuides:
+                    fRnaInput.write(
+                        "G{}{}\n".format(
+                            target23[1:20], 
+                            guide
                         )
+                    )
+                    guidesInPage += 1
+                    
+            printer(f'\t\t{guidesInPage} guides in this page.')
 
             caller(
                 "{} --noPS -j{} -i \"{}\" > \"{}\"".format(
@@ -347,69 +350,55 @@ def Crackling(configMngr):
                     i += 1
 
 
-            for target23 in candidateGuides:
-                # we only guides that have passed for mm10db's test so far
-                if  candidateGuides[target23]['passedAvoidLeadingT'] == 1 and \
-                    candidateGuides[target23]['passedATPercent'] == 1 and \
-                    candidateGuides[target23]['passedTTTT'] == 1:
-                    
-                    key = target23[1:20]
-                    if key not in RNAstructures:
-                        print(f"Could not find: {target23[0:20]}")
-                        notFoundCount += 1
-                        continue
+            for target23 in pageCandidateGuides:
+                key = target23[1:20]
+                if key not in RNAstructures:
+                    print(f"Could not find: {target23[0:20]}")
+                    notFoundCount += 1
+                    continue
+                else:
+                    L1 = RNAstructures[key][0]
+                    L2 = RNAstructures[key][1]
+                    target = RNAstructures[key][2]
+
+                structure = L2.split(" ")[0]
+                energy = L2.split(" ")[1][1:-1]
+                
+                candidateGuides[target23]['ssL1'] = L1
+                candidateGuides[target23]['ssStructure'] = structure
+                candidateGuides[target23]['ssEnergy'] = energy
+                
+                if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
+                    candidateGuides[target23]['passedSecondaryStructure'] = CODE_ERROR
+                    errorCount += 1
+                    continue
+
+                match_structure = re.search(pattern_RNAstructure, L2)
+                if match_structure:
+                    energy = ast.literal_eval(match_structure.group(1))
+                    if energy < float(configMngr['rnafold']['low_energy_threshold']):
+                        candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED
+                        failedCount += 1
                     else:
-                        L1 = RNAstructures[key][0]
-                        L2 = RNAstructures[key][1]
-                        target = RNAstructures[key][2]
-
-                    structure = L2.split(" ")[0]
-                    energy = L2.split(" ")[1][1:-1]
-                    
-                    candidateGuides[target23]['ssL1'] = L1
-                    candidateGuides[target23]['ssStructure'] = structure
-                    candidateGuides[target23]['ssEnergy'] = energy
-                    
-                    if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
-                        candidateGuides[target23]['passedSecondaryStructure'] = CODE_ERROR
-                        errorCount += 1
-                        continue
-
-                    match_structure = re.search(pattern_RNAstructure, L2)
-                    if match_structure:
-                        energy = ast.literal_eval(match_structure.group(1))
-                        if energy < float(configMngr['rnafold']['low_energy_threshold']):
+                        candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
+                else:
+                    match_energy = re.search(pattern_RNAenergy, L2)
+                    if match_energy:
+                        energy = ast.literal_eval(match_energy.group(1))
+                        if energy <= float(configMngr['rnafold']['high_energy_threshold']):
                             candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED
                             failedCount += 1
                         else:
                             candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
-                    else:
-                        match_energy = re.search(pattern_RNAenergy, L2)
-                        if match_energy:
-                            energy = ast.literal_eval(match_energy.group(1))
-                            if energy <= float(configMngr['rnafold']['high_energy_threshold']):
-                                candidateGuides[transToDNA(target23)]['passedSecondaryStructure'] = CODE_REJECTED
-                                failedCount += 1
-                            else:
-                                candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
 
 
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))
+        printer(f'\t{failedCount} of {testedCount} failed here.')
         
         if errorCount > 0:
-            printer('\t{} of {} erred here.'.format(
-                errorCount,
-                testedCount
-            ))
+            printer(f'\t{errorCount} of {testedCount} erred here.')
         
         if notFoundCount > 0:
-            printer('\t{} of {} not found in RNAfold output.'.format(
-                notFoundCount,
-                testedCount
-            ))
+            printer(f'\t{notFoundCount} of {testedCount} not found in RNAfold output.')
 
     #########################################
     ##         Calc mm10db result          ##
@@ -434,13 +423,9 @@ def Crackling(configMngr):
                 candidateGuides[target23]['acceptedByMm10db'] = CODE_ACCEPTED
                 acceptedCount += 1
 
-        printer('\t{} accepted.'.format(
-            acceptedCount
-        ))
+        printer(f'\t{acceptedCount} accepted.')
 
-        printer('\t{} failed.'.format(
-            failedCount
-        ))
+        printer(f'\t{failedCount} failed.')
             
         del acceptedCount
              
@@ -483,10 +468,7 @@ def Crackling(configMngr):
             else:
                 candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_ACCEPTED
                         
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))
+        printer(f'\t{failedCount} of {testedCount} failed here.')
        
     #########################################
     ##                 G20                 ##
@@ -504,10 +486,7 @@ def Crackling(configMngr):
                 candidateGuides[target23]['passedG20'] = CODE_ACCEPTED
             testedCount += 1
 
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))     
+        printer(f'\t{failedCount} of {testedCount} failed here.')    
 
     #########################################
     ##      Begin efficacy consensus       ##
@@ -517,20 +496,18 @@ def Crackling(configMngr):
     failedCount = 0
     testedCount = 0
     for target23 in candidateGuides:
-        candidateGuides[target23]['consensusCount'] = (
-            (int)(candidateGuides[target23]['acceptedByMm10db'] == CODE_ACCEPTED)          +     # mm10db accepted
-            (int)(candidateGuides[target23]['acceptedBySgRnaScorer'] == CODE_ACCEPTED)     +     # sgrnascorer2 accepted
-            (int)(candidateGuides[target23]['passedG20'] == CODE_ACCEPTED)                       # chopchop-g20 accepted
-        )
+        candidateGuides[target23]['consensusCount'] = sum([
+            candidateGuides[target23]['acceptedByMm10db'] == CODE_ACCEPTED,
+            candidateGuides[target23]['acceptedBySgRnaScorer'] == CODE_ACCEPTED,
+            candidateGuides[target23]['passedG20'] == CODE_ACCEPTED,
+        ])
+        
         if candidateGuides[target23]['consensusCount'] < int(configMngr['consensus']['n']):
             failedCount += 1
             
         testedCount += 1
             
-    printer('\t{} of {} failed here.'.format(
-        failedCount,
-        testedCount
-    ))   
+    printer(f'\t{failedCount} of {testedCount} failed here.')
 
     if (configMngr['offtargetscore'].getboolean('enabled')):
         ###############################################
@@ -550,7 +527,7 @@ def Crackling(configMngr):
 
             if pgLength > 0:
                 numPages = int(len(candidateGuides) / pgLength) + 1
-                printer(f'\tProcessing page {(pgIdx+1)} of {numPages}')
+                printer(f'\tProcessing page {(pgIdx+1)} of {numPages} ({pgLength} per page).')
             
             if os.path.exists(configMngr['bowtie2']['output']):
                 os.remove(configMngr['bowtie2']['output'])
@@ -558,6 +535,7 @@ def Crackling(configMngr):
             printer('\tConstructing the Bowtie input file.')
             
             tempTargetDict_offset = {}
+            guidesInPage = 0
             with open(configMngr['bowtie2']['input'], 'w') as fWriteBowtie:
                 for target23 in pageCandidateGuides:
                     testedCount += 1
@@ -575,8 +553,10 @@ def Crackling(configMngr):
                     for seq in similarTargets:
                         fWriteBowtie.write(seq + "\n")
                         tempTargetDict_offset[seq] = target23
+                        
+                    guidesInPage += 1
 
-            printer('\tFile ready. Calling Bowtie.')
+            printer(f'\t\t{guidesInPage} guides in this page.')
 
             caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
                 configMngr['bowtie2']['binary'],
@@ -648,10 +628,7 @@ def Crackling(configMngr):
             # we can remove the dictionary
             del tempTargetDict_offset
         
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))
+        printer(f'\t{failedCount} of {testedCount} failed here.')
 
         #########################################
         ##      Begin off-target scoring       ##
@@ -667,9 +644,7 @@ def Crackling(configMngr):
                 fTargetsToScore.write(target+"\n")
                 testedCount += 1
         
-        printer('\t{} to calculate scores.'.format(
-            testedCount
-        ))
+        printer(f'\tCalculating specificity score for {testedCount} guides.')
         
         # call the scoring method
         caller(
@@ -702,10 +677,7 @@ def Crackling(configMngr):
                 else:
                     candidateGuides[target23]['passedOffTargetScore'] = CODE_ACCEPTED
         
-        printer('\t{} of {} failed here.'.format(
-            failedCount,
-            testedCount
-        ))
+        printer(f'\t{failedCount} of {testedCount} failed here.')
 
     #########################################
     ##           Begin output              ##
@@ -746,9 +718,7 @@ def Crackling(configMngr):
     #########################################
     printer('Done.')
 
-    printer('{} guides evaluated.'.format(
-        len(candidateGuides)
-    ))
+    printer(f'{len(candidateGuides)} guides evaluated.')
 
     printer('Ran in {} (dd hh:mm:ss) or {} seconds'.format(
         strftime("%d %H:%M:%S", gmtime((time.time() - start_time))), 
@@ -762,6 +732,9 @@ def Crackling(configMngr):
         strftime("%d %H:%M:%S", gmtime(totalRunTimeSec)), 
         totalRunTimeSec
     ))   
+    
+    sys.stdout = _stdout
+    sys.stderr = _stderr
     
 if __name__ == '__main__':
     # load in config
