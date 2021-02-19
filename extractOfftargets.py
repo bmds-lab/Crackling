@@ -14,12 +14,26 @@ To use:     python3.7 extractOfftargets.py <output-file> <input-file-1> <input-f
 
 '''
 
-import multiprocessing, os, re, string, sys, tempfile
+import glob, multiprocessing, os, re, string, sys, tempfile
 from Helpers import *
+from Paginator import Paginator
 
 # Defining the patterns used to detect sequences
 pattern_forward_offsite = r"(?=([ACG][ACGT]{19}[ACGT][AG]G))"
 pattern_reverse_offsite = r"(?=(C[CT][ACGT][ACGT]{19}[TGC]))"
+
+# The off-target sites need to be sorted so the ISSL index is space-optimised.
+# In some cases, there are many files to sort, we can paginate the files.
+# How many files should we sort per page?
+# This is dictated by the number of arguments that we can pass to `sort`
+# Default: 50
+SORT_PAGE_SIZE = 50
+
+# Set the number of processes to generate.
+# This sets the --threads argument for `sort`, and
+# the process count for multiprocessing.Map(..)
+# Default: os.cpu_count()
+PROCESSES_COUNT = os.cpu_count()
 
 def processingNode(fpInputs, fpOutput = None, fpOutputTempDir = None):
     # Create a temporary file
@@ -111,26 +125,56 @@ def explodeMultiFastaFile(fpInput, fpOutputTempDir):
             
     return newFilesPaths
 
+def bashPaginatedSort(filesToSort):
+    # sort in batches
+    unsortedFiles = filesToSort
+    while len(unsortedFiles) > 1:
+        newUnsortedFiles = []
+        
+        for pageNum, pageContents in Paginator(
+            unsortedFiles,
+            SORT_PAGE_SIZE
+        ):
+
+            strFiles = '"' + '" "'.join(pageContents) + '"'
+
+            fpTemp = tempfile.NamedTemporaryFile(
+                mode = 'w+', 
+                delete = False
+            )
+
+            caller(f'sort --parallel={PROCESSES_COUNT} {strFiles} > {fpTemp.name}', shell=True)
+            
+            newUnsortedFiles.append(fpTemp.name)
+            
+        unsortedFiles = newUnsortedFiles
+            
+    # should only contain one list that is sorted, despite the name
+    return unsortedFiles 
+
 def startMultiprocessing(fpInputs, fpOutput):
     printer('Extracting off-targets using multiprocessing approach')
     
-    printer(f'CPU count: {os.cpu_count()}')
+    printer(f'Allowed processes: {PROCESSES_COUNT}')
     
-    printer('Creating a temporary directory for intermediate files')
-
     fpTempDir = tempfile.TemporaryDirectory()
+    printer(f'Created a temporary directory for intermediate files: {fpTempDir.name}')
+
 
     if len(fpInputs) == 1:
         printer('Only one input file to process')
-        printer('Attempting to separate file, if it is multi-FASTA formatted')
+        
+        fpExplodeTempDir = tempfile.TemporaryDirectory()
+        printer('Attempting to explode multi-FASTA file')
+        printer(f'Writing each file to a temporary directory: {fpExplodeTempDir.name}')
         
     
-        fpExplodeTempDir = tempfile.TemporaryDirectory()
         fpInputs = explodeMultiFastaFile(
             fpInputs[0],
             fpExplodeTempDir.name
         )
-        print(fpInputs)
+        
+        printer(f'Exploded into {len(fpInputs)} files')
 
     args = [
         (
@@ -140,9 +184,9 @@ def startMultiprocessing(fpInputs, fpOutput):
         ) for fpInput in fpInputs
     ]
 
-    printer('Beginning to process...')
+    printer(f'Beginning to process {len(args)} files...')
     
-    with multiprocessing.Pool() as mpPool:
+    with multiprocessing.Pool(PROCESSES_COUNT) as mpPool:
         # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
         mpPool.starmap(
             processingNode,
@@ -154,9 +198,17 @@ def startMultiprocessing(fpInputs, fpOutput):
     printer('Preparing for ISSL by sorting all intermediate files')
     printer('Then, writing to user-specified output file')
     
-    fpTempDirAllFiles = os.path.join(fpTempDir.name, '*')
-    numberOfCores = os.cpu_count()
-    caller(f'sort --parallel=64 {fpTempDirAllFiles} > {fpOutput}', shell=True)
+    # sort in batches
+    fpSorted = bashPaginatedSort(
+        glob.glob(
+            os.path.join(
+                fpTempDir.name, 
+                '*'
+            )
+        )
+    )
+    
+    os.rename(fpSorted[0], fpOutput)
 
 if __name__ == '__main__':
     if (len(sys.argv) < 3):
