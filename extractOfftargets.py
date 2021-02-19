@@ -10,7 +10,7 @@ Input:      FASTA, or multi-FASTA, formatted file
 
 Output:     one file with all the sites
 
-To use:     python3.7 extractOfftargets.py <output-file> <input-file-1> <input-file-2> <input-file-n>
+To use:     python3.7 extractOfftargets.py <output-file>  [<input-file-1> <input-file-2> <input-file-n> | <input-dir>]
 
 '''
 
@@ -160,6 +160,13 @@ def startMultiprocessing(fpInputs, fpOutput):
     fpTempDir = tempfile.TemporaryDirectory()
     printer(f'Created a temporary directory for intermediate files: {fpTempDir.name}')
 
+    if len(fpInputs) == 1 and os.path.isdir(fpInputs[0]):
+        fpInputs = glob.glob(
+            os.path.join(
+                fpInputs[0], 
+                '*'
+            )
+        )
 
     if len(fpInputs) == 1:
         printer('Only one input file to process')
@@ -213,7 +220,7 @@ def startMultiprocessing(fpInputs, fpOutput):
 if __name__ == '__main__':
     if (len(sys.argv) < 3):
         print('Error!')
-        print('Expecting: prepareListOfftargetSites.py <output-file> <input-file-1> <input-file-2> <input-file-n>')
+        print('Expecting: ExtractOfftargets.py <output-file> [<input-file-1> <input-file-2> <input-file-n> | <input-dir>]')
         print('\n')
         exit()
 
