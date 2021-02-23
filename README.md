@@ -44,21 +44,27 @@ We present Crackling, a new method for whole-genome identification of suitable C
 
 ## Off-target Indexing
 
-1. Prepare a file for your genome which contains one line per chromosome.
-
-2. Extract off-target sites:
+1. Extract off-target sites:
 
     ```
-    python extractOfftargets.py <input-file> <output-file>
+    python3.7 ExtractOfftargets.py <output-file>  (input-files... | input-dir>)
     ```
-    
+
     For example:
-    
+
     ```
-    python extractOfftargets.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
+    python extractOfftargets.py ~/genomes/mouse.fa ~/genomes/mouse_offtargets.txt
     ```
 
-3. Sort the off-target sites. 
+   The input provided can be:
+
+   - A single, or a list, of multi-FASTA formatted files
+
+   - A directory, for which we scan every file by parsing, using [glob](https://docs.python.org/3/library/glob.html): `<input-dir>/*`
+
+  
+
+2. Sort the off-target sites. 
 
     On Linux:
     
@@ -66,7 +72,7 @@ We present Crackling, a new method for whole-genome identification of suitable C
     sort --parallel=64 ~/genomes/mouse_offtargets.txt > ~/genomes/mouse_offtargets-sorted.txt
     ```
 
-4. Build the ISSL index
+3. Build the ISSL index
 
     Compile the indexer first: 
     
@@ -87,6 +93,27 @@ We present Crackling, a new method for whole-genome identification of suitable C
     ```
     ./isslCreateIndex ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
     ```
+
+
+
+## Bowtie2 index
+
+The Bowtie2 manual can be found [here](http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml).
+
+Crackling requires a Bowtie2 index to be provided.
+
+Our recommended usage:
+
+```
+bowtie2-build --threads 128 input-file output-file
+```
+
+For example:
+
+```bash
+bowtie2-build --threads 128 ~/genomes/mouse.fa ~/genomes/mouse.fa.bowtie2
+```
+
 
 
 ## References

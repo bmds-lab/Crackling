@@ -14,7 +14,7 @@ To use:     python3.7 extractOfftargets.py <output-file>  [<input-file-1> <input
 
 '''
 
-import glob, multiprocessing, os, re, string, sys, tempfile
+import glob, multiprocessing, os, re, shutil, string, sys, tempfile
 from Helpers import *
 from Paginator import Paginator
 
@@ -27,7 +27,7 @@ pattern_reverse_offsite = r"(?=(C[CT][ACGT][ACGT]{19}[TGC]))"
 # How many files should we sort per page?
 # This is dictated by the number of arguments that we can pass to `sort`
 # Default: 50
-SORT_PAGE_SIZE = 50
+SORT_PAGE_SIZE = 500
 
 # Set the number of processes to generate.
 # This sets the --threads argument for `sort`, and
@@ -215,7 +215,7 @@ def startMultiprocessing(fpInputs, fpOutput):
         )
     )
     
-    os.rename(fpSorted[0], fpOutput)
+    shutil.move(fpSorted[0], fpOutput)
 
 if __name__ == '__main__':
     if (len(sys.argv) < 3):
