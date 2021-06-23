@@ -10,7 +10,7 @@ Input:      FASTA, or multi-FASTA, formatted file
 
 Output:     one file with all the sites
 
-To use:     python3.7 extractOfftargets.py <output-file>  [<input-file-1> <input-file-2> <input-file-n> | <input-dir>]
+To use:     python3.7 ExtractOfftargets.py output-file  (input-files... | input-dir>)
 
 '''
 
@@ -35,7 +35,7 @@ SORT_PAGE_SIZE = 500
 # Default: os.cpu_count()
 PROCESSES_COUNT = os.cpu_count()
 
-def processingNode(fpInputs, fpOutput = None, fpOutputTempDir = None):
+def processingNode(fpInputs, fpOutputTempDir = None):
     # Create a temporary file
     fpTemp = tempfile.NamedTemporaryFile(
         mode = 'w+', 
@@ -51,41 +51,41 @@ def processingNode(fpInputs, fpOutput = None, fpOutputTempDir = None):
             seqsByHeader = {}
 
             with open(fpInput, 'r') as inFile:
-                previousHeader = fpInput
+                header = fpInput
                 
                 for line in inFile:
-                    line = line.strip()
                     if line[0] == '>':
-                        seqsByHeader[line[1:]] = ""
-                        previousHeader = line[1:]
-                        continue
+                        header = line[1:]
+                        seqsByHeader[header] = []
                     else:
-                        if previousHeader not in seqsByHeader:
+                        if header not in seqsByHeader:
                             # it could be a plain text file, without a header
-                            seqsByHeader[previousHeader] = ""
-                            
-                        seqsByHeader[previousHeader] += line.strip()
-            
-        
+                            seqsByHeader[header] = []
+                       
+                        seqsByHeader[header].append(line.rstrip().upper())
+
             # For each FASTA sequence
             lineNumber = 0
+            offtargets = [] 
             for header in seqsByHeader:
-            
-                seq = seqsByHeader[header]
+                seq = ''.join(seqsByHeader[header])
                 
                 for strand, pattern, seqModifier in [
                     ['positive', pattern_forward_offsite, lambda x : x],
                     ['negative', pattern_reverse_offsite, lambda x : rc(x)]
                 ]:
-                
-                    match_chr = re.findall(pattern, line)
+                    match_chr = re.findall(pattern, seq)
 
                     for i in range(0,len(match_chr)):
-                        outFile.write(
-                            seqModifier(match_chr[i][0:20])+'\n'
+                        offtargets.append(
+                            seqModifier(match_chr[i][0:20])
                         )
 
                 lineNumber += 1
+                
+            outFile.write(
+                '\n'.join(offtargets)
+            )
 
 def explodeMultiFastaFile(fpInput, fpOutputTempDir):
     newFilesPaths = []
@@ -128,14 +128,18 @@ def explodeMultiFastaFile(fpInput, fpOutputTempDir):
 def bashPaginatedSort(filesToSort):
     # sort in batches
     unsortedFiles = filesToSort
+
     while len(unsortedFiles) > 1:
         newUnsortedFiles = []
+        
+        onlyMerge = False
+        if len(newUnsortedFiles) > 0:
+            onlyMerge = True
         
         for pageNum, pageContents in Paginator(
             unsortedFiles,
             SORT_PAGE_SIZE
         ):
-
             strFiles = '"' + '" "'.join(pageContents) + '"'
 
             fpTemp = tempfile.NamedTemporaryFile(
@@ -143,11 +147,18 @@ def bashPaginatedSort(filesToSort):
                 delete = False
             )
 
-            caller(f'sort --parallel={PROCESSES_COUNT} {strFiles} > {fpTemp.name}', shell=True)
+            if onlyMerge:
+                caller(f'sort --merge --parallel={PROCESSES_COUNT} {strFiles} > {fpTemp.name}', shell=True)
+            else:
+                caller(f'sort --parallel={PROCESSES_COUNT} {strFiles} > {fpTemp.name}', shell=True)
             
             newUnsortedFiles.append(fpTemp.name)
+
+            for fp in pageContents:
+                os.remove(fp)
             
         unsortedFiles = newUnsortedFiles
+        onlyMerge = True
             
     # should only contain one list that is sorted, despite the name
     return unsortedFiles 
@@ -186,13 +197,12 @@ def startMultiprocessing(fpInputs, fpOutput):
     args = [
         (
             [fpInput],
-            None, 
             fpTempDir.name 
         ) for fpInput in fpInputs
     ]
 
     printer(f'Beginning to process {len(args)} files...')
-    
+
     with multiprocessing.Pool(PROCESSES_COUNT) as mpPool:
         # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
         mpPool.starmap(
@@ -227,7 +237,7 @@ if __name__ == '__main__':
     fpOutput = sys.argv[1]
     
     fpInputs = sys.argv[2:]
-    
+        
     startMultiprocessing(fpInputs, fpOutput)
     
     printer('Goodbye.')
