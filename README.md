@@ -31,7 +31,7 @@ We present Crackling, a new method for whole-genome identification of suitable C
 4. Compile the off-target scoring function. An index of off-targets is required: to prepare this, read the next section (*Off-target Indexing*).
 
     ```
-    g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+    g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
     ```
 
 5. Run the pipeline: 
