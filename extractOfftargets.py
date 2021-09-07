@@ -84,9 +84,7 @@ def processingNode(fpInputs, fpOutputTempDir = None):
 
                 lineNumber += 1
                 
-            outFile.write(
-                '\n'.join(offtargets)
-            )
+            outFile.write(''.join(f'{offTarget}\n' for offTarget in offtargets))
 
 # Node function that sorts a file for multiprocessing pool
 def sortingNode(fileToSort, sortedTempDir):
