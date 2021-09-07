@@ -15,6 +15,7 @@ To use:     python3.7 ExtractOfftargets.py output-file  (input-files... | input-
 '''
 
 import glob, multiprocessing, os, re, shutil, string, sys, tempfile, heapq
+import time
 from Helpers import *
 from Paginator import Paginator
 
@@ -144,7 +145,7 @@ def explodeMultiFastaFile(fpInput, fpOutputTempDir):
             
     return newFilesPaths
 
-def paginatedSort(filesToSort, fpOutput): 
+def paginatedSort(filesToSort, fpOutput, mpPool): 
     # Create temp file directory
     sortedTempDir = tempfile.TemporaryDirectory()
     printer(f'Created temp directory {sortedTempDir.name} for sorting')
@@ -157,12 +158,10 @@ def paginatedSort(filesToSort, fpOutput):
         ) for file in filesToSort
     ]
 
-    # Create multiprocessing pool
-    with multiprocessing.Pool(PROCESSES_COUNT) as mpPool:
-        mpPool.starmap(
-            sortingNode,
-            args
-        )
+    mpPool.starmap(
+        sortingNode,
+        args
+    )
 
     # Collect sorted files to merge
     sortedFiles = glob.glob(
@@ -179,11 +178,11 @@ def paginatedSort(filesToSort, fpOutput):
     with open(fpOutput, 'w') as f:
         f.writelines(heapq.merge(*sortedFilesPointers))
     
-    # Close all off the sorted files
+    # Close all of the sorted files
     for file in sortedFilesPointers:
         file.close()
 
-def startMultiprocessing(fpInputs, fpOutput):
+def startMultiprocessing(fpInputs, fpOutput, mpPool):
     printer('Extracting off-targets using multiprocessing approach')
     
     printer(f'Allowed processes: {PROCESSES_COUNT}')
@@ -223,12 +222,10 @@ def startMultiprocessing(fpInputs, fpOutput):
 
     printer(f'Beginning to process {len(args)} files...')
 
-    with multiprocessing.Pool(PROCESSES_COUNT) as mpPool:
-        # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
-        mpPool.starmap(
-            processingNode,
-            args
-        )
+    mpPool.starmap(
+        processingNode,
+        args
+    )
 
     printer('Processing completed')
     
@@ -243,7 +240,8 @@ def startMultiprocessing(fpInputs, fpOutput):
                 '*'
             )
         ), 
-        fpOutput
+        fpOutput,
+        mpPool
     )
 
 if __name__ == '__main__':
@@ -253,10 +251,15 @@ if __name__ == '__main__':
         print('\n')
         exit()
 
+    # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
+    mpPool = multiprocessing.Pool(PROCESSES_COUNT)
+
     fpOutput = sys.argv[1]
     
     fpInputs = sys.argv[2:]
         
-    startMultiprocessing(fpInputs, fpOutput)
+    startMultiprocessing(fpInputs, fpOutput, mpPool)
     
+    mpPool.close()
+
     printer('Goodbye.')
