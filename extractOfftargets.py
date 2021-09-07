@@ -144,44 +144,6 @@ def explodeMultiFastaFile(fpInput, fpOutputTempDir):
             
     return newFilesPaths
 
-def bashPaginatedSort(filesToSort):
-    # sort in batches
-    unsortedFiles = filesToSort
-
-    while len(unsortedFiles) > 1:
-        newUnsortedFiles = []
-        
-        onlyMerge = False
-        if len(newUnsortedFiles) > 0:
-            onlyMerge = True
-        
-        for pageNum, pageContents in Paginator(
-            unsortedFiles,
-            SORT_PAGE_SIZE
-        ):
-            strFiles = '"' + '" "'.join(pageContents) + '"'
-
-            fpTemp = tempfile.NamedTemporaryFile(
-                mode = 'w+', 
-                delete = False
-            )
-
-            if onlyMerge:
-                caller(f'sort --merge --parallel={PROCESSES_COUNT} {strFiles} > {fpTemp.name}', shell=True)
-            else:
-                caller(f'sort --parallel={PROCESSES_COUNT} {strFiles} > {fpTemp.name}', shell=True)
-            
-            newUnsortedFiles.append(fpTemp.name)
-
-            for fp in pageContents:
-                os.remove(fp)
-            
-        unsortedFiles = newUnsortedFiles
-        onlyMerge = True
-            
-    # should only contain one list that is sorted, despite the name
-    return unsortedFiles 
-
 def paginatedSort(filesToSort, fpOutput): 
     # Create temp file directory
     sortedTempDir = tempfile.TemporaryDirectory()
