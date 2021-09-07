@@ -47,18 +47,18 @@ We present Crackling, a new method for whole-genome identification of suitable C
 1. Extract off-target sites:
 
     ```
-    python3.7 extractOfftargets.py <output-file>  (input-files... | input-dir>)
+    python extractOfftargets.py <output-file>  {<input-files>... | input-dir>}
     ```
 
     For example:
 
     ```
-    python extractOfftargets.py ~/genomes/mouse.fa ~/genomes/mouse_offtargets.txt
+    python extractOfftargets.py ~/genomes/mouse_offtargets.txt ~/genomes/mouse.fa
     ```
 
    The input provided can be:
 
-   - A single, or a list, of multi-FASTA formatted files
+   - A single, or a space sperated list, of multi-FASTA formatted files
 
    - A directory, for which we scan every file by parsing, using [glob](https://docs.python.org/3/library/glob.html): `<input-dir>/*`
 
