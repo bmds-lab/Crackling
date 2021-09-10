@@ -15,7 +15,6 @@ To use:     python3.7 ExtractOfftargets.py output-file  (input-files... | input-
 '''
 
 import glob, multiprocessing, os, re, shutil, string, sys, tempfile, heapq
-import time
 from Helpers import *
 from Paginator import Paginator
 
@@ -156,6 +155,7 @@ def paginatedSort(filesToSort, fpOutput, mpPool):
         ) for file in filesToSort
     ]
 
+    # Submit job to multiprocessing pool
     mpPool.starmap(
         sortingNode,
         args
@@ -249,6 +249,7 @@ if __name__ == '__main__':
         print('\n')
         exit()
 
+    # Create multiprocessing pool
     # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
     mpPool = multiprocessing.Pool(PROCESSES_COUNT)
 
@@ -258,6 +259,7 @@ if __name__ == '__main__':
         
     startMultiprocessing(fpInputs, fpOutput, mpPool)
     
+    # Clean up. Close multiprocessing pool
     mpPool.close()
 
     printer('Goodbye.')
