@@ -9,6 +9,7 @@ Config:
 
 import argparse, ast, csv, joblib, os, re, sys, time
 from sklearn.svm import SVC
+from Bio.SeqIO import FastaIO
 
 from ConfigManager import ConfigManager
 from Paginator import Paginator
@@ -159,39 +160,10 @@ def Crackling(configMngr):
         
         candidateGuides = {}
         
-        # We first remove all the line breaks within a given sequence (FASTA format)
-        with open(seqFilePath, 'r') as inFile, open('tempFile.fa', 'w') as outFile:
-            previousHeader = seqFilePath
-            for line in inFile:
-                line = line.strip()
-                if line[0] == '>':
-                    # this is the header line for a new sequence, so we break the previous line and write the header as a new line
-                    outFile.write("\n"+line+"\n")
-                    continue
-                else:
-                    # this is (part of) the sequence; we write it without line break
-                    outFile.write(line.strip())
-
-        # We read and process the file without line breaks
-        with open('tempFile.fa', 'r') as inFile:
-            previousHeader = seqFilePath
-            for line in inFile:
-                line = line.strip()
-                if line=="":
-                    # some lines (e.g., first line in file) can be just a line break
-                    continue
-                elif line[0] == '>':
-                    # this is the header line for a new sequence
-                    seqsByHeader[line[1:]] = ""
-                    previousHeader = line[1:]
-                    continue
-                else:
-                    if previousHeader not in seqsByHeader:
-                        # it could be a plain text file, without a header
-                        seqsByHeader[previousHeader] = ""
-                    # we save the sequence
-                    seqsByHeader[previousHeader] += line.strip()
-
+        # Use BioPython to read the file
+        with open(seqFilePath, 'r') as inFile:
+            for header, seq in FastaIO.SimpleFastaParser(inFile):
+                seqsByHeader[header] = seq
         
         pattern_forward = r"(?=([ATCG]{21}GG))"
         pattern_reverse = r"(?=(CC[ACGT]{21}))"
