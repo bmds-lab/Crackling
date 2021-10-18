@@ -32,15 +32,6 @@ class ConfigManager():
         #self.__setattr__ = self._setattr_
     
     def __getitem__(self, arg):
-        #if self._isConfigured:
-        #    configParserSetItem = self._ConfigParser.__getitem__(arg)
-        #    self._isConfigured = self._validateConfig()
-        #    if not self._isConfigured:
-        #        self._sendMsg('Configuration now invalid!')
-        #else:
-        #    self._sendMsg('Configuration manager not ready to take values')
-        #    exit()
-    
         return self._ConfigParser.__getitem__(arg)
 
     def _sendMsg(self, str):
@@ -131,8 +122,6 @@ class ConfigManager():
                 if isinstance(CONFIG[firstLayer], dict):
                     self._ConfigParser.add_section(firstLayer)
                     for secondLayer in CONFIG[firstLayer]:
-                        #if secondLayer == 'delimiter':
-                        #    secondLayer = f'"{secondLayer}"'
                         self._ConfigParser.set(firstLayer, secondLayer, str(CONFIG[firstLayer][secondLayer]))
                 else:
                     self._ConfigParser.set('general', firstLayer, CONFIG[firstLayer])
@@ -152,7 +141,6 @@ class ConfigManager():
         except Exception as e:
             print(e)
             return False
-        #self._ConfigParser['output']['delimiter'] = char(self._ConfigParser['output']['delimiter'])
         return True
 
     def _validateConfig(self):
@@ -172,12 +160,12 @@ class ConfigManager():
         
         # check that the 'n' value for the consensus is less than or equal to
         # the number of tools being used
-        numToolsInConsesus = self.getNumberToolsInConsensus()
+        numToolsInConsensus = self.getNumberToolsInConsensus()
         n = int(c['consensus']['n'])
         
-        if n > numToolsInConsesus:
+        if n > numToolsInConsensus:
             passed = False
-            self._sendMsg(f'The consensus approach is incorrectly set. You have specified {numToolsInConsesus} to be ran but the n-value is {n}. Change n to be <= {numToolsInConsesus}.')
+            self._sendMsg(f'The consensus approach is incorrectly set. You have specified {numToolsInConsensus} to be ran but the n-value is {n}. Change n to be <= {numToolsInConsensus}.')
        
         
         c['output']['file'] = os.path.join(c['output']['dir'], f"{self.getConfigName()}-{c['output']['fileName']}")
