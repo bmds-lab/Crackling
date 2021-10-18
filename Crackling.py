@@ -9,7 +9,6 @@ Config:
 
 import argparse, ast, csv, joblib, os, re, sys, time
 from sklearn.svm import SVC
-from Bio.SeqIO import FastaIO
 
 from ConfigManager import ConfigManager
 from Paginator import Paginator
@@ -160,11 +159,22 @@ def Crackling(configMngr):
         
         candidateGuides = {}
         
-        # Use BioPython to read the file
+        # Read the file
         with open(seqFilePath, 'r') as inFile:
-            for header, seq in FastaIO.SimpleFastaParser(inFile):
-                seqsByHeader[header] = seq
-        
+            seqLines = []
+            header = seqFilePath
+            for line in inFile:
+                if line[0] == ">":
+                    if (seqLines) != 0:
+                        seq = "".join(seqLines).replace(" ", "").replace("\r", "")
+                        if len(seq) > 0:
+                            seqsByHeader[header] = seq
+                    seqLines = []
+                    header = line.strip()
+                else:
+                    seqLines.append(line)
+            seqsByHeader[header] = "".join(seqLines).replace(" ", "").replace("\r", "")
+            
         pattern_forward = r"(?=([ATCG]{21}GG))"
         pattern_reverse = r"(?=(CC[ACGT]{21}))"
 
