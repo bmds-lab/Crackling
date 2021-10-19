@@ -231,18 +231,45 @@ int main(int argc, char **argv)
 					uint64_t mismatches = (evenBits >> 1) | oddBits;
 					int dist = __builtin_popcountll(mismatches);
 
-					if (dist > 0 && dist <= maxDist) {
-						uint64_t seenOfftargetAlready = 0;
-						uint64_t * ptrOfftargetFlag = (offtargetTogglesTail - (signatureId / 64));
-						if (i > 0) {
-							seenOfftargetAlready = (*ptrOfftargetFlag >> (signatureId % 64)) & 1ULL;
+					// Begin calculating MIT score
+					if (!scoreMethod.compare("mit")) {
+						if (dist > 0 && dist <= maxDist) {
+							uint64_t seenOfftargetAlready = 0;
+							uint64_t * ptrOfftargetFlag = (offtargetTogglesTail - (signatureId / 64));
+							if (i > 0) {
+								seenOfftargetAlready = (*ptrOfftargetFlag >> (signatureId % 64)) & 1ULL;
+							}
+							
+							if (!seenOfftargetAlready) {
+								uint32_t occurrences = (signatureWithOccurrencesAndId >> (32));
+								totScoreMit += precalculatedScores[mismatches] * (double)occurrences;
+								
+								if (totScoreMit > maximum_sum) {
+									checkNextSlice = false;
+									break;
+								}
+								
+								*ptrOfftargetFlag |= (1ULL << (signatureId % 64));
+								numOffTargetSitesScored += occurrences;
+							}
 						}
 						
-						if (!seenOfftargetAlready) {
-							uint32_t occurrences = (signatureWithOccurrencesAndId >> (32));
-
-							// Begin calculating CFD score
-							if (!scoreMethod.compare("cfd")) {
+					} 
+					
+					// Begin calculating CFD score
+					else if (!scoreMethod.compare("cfd")) {
+						if (dist == 1) {
+							totScoreCfd = 1.0;
+						}
+						else if (dist <= maxDist) {
+							uint64_t seenOfftargetAlready = 0;
+							uint64_t * ptrOfftargetFlag = (offtargetTogglesTail - (signatureId / 64));
+							if (i > 0) {
+								seenOfftargetAlready = (*ptrOfftargetFlag >> (signatureId % 64)) & 1ULL;
+							}
+							
+							if (!seenOfftargetAlready) {
+								uint32_t occurrences = (signatureWithOccurrencesAndId >> (32));
 								double cfdScore = cfdPamPenalties[0b1010]; // PAM: NGG
 								
 								for (size_t pos = 0; pos < 20; pos++) {
@@ -290,24 +317,15 @@ int main(int argc, char **argv)
 									
 								}
 								totScoreCfd += cfdScore;
-							} else if (!scoreMethod.compare("mit")) {
-								// Begin calculating MIT score
-								totScoreMit += precalculatedScores[mismatches] * (double)occurrences;
-							}
+								
+								if (totScoreCfd > maximum_sum) {
+									checkNextSlice = false;
+									break;
+								}
 							
-							if ((!scoreMethod.compare("cfd")) && totScoreCfd > maximum_sum) {
-								checkNextSlice = false;
-								break;
+								*ptrOfftargetFlag |= (1ULL << (signatureId % 64));
+								numOffTargetSitesScored += occurrences;
 							}
-							
-							if ((!scoreMethod.compare("mit")) && totScoreMit > maximum_sum) {
-								checkNextSlice = false;
-								break;
-							}
-							
-							*ptrOfftargetFlag |= (1ULL << (signatureId % 64));
-
-							numOffTargetSitesScored += occurrences;
 						}
 					}
                 }
