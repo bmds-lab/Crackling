@@ -14,7 +14,7 @@ To use:     python3.7 ExtractOfftargets.py output-file  (input-files... | input-
 
 '''
 
-import glob, multiprocessing, os, re, shutil, string, sys, tempfile
+import glob, multiprocessing, os, re, shutil, string, sys, tempfile, heapq
 from Helpers import *
 from Paginator import Paginator
 
@@ -84,8 +84,27 @@ def processingNode(fpInputs, fpOutputTempDir = None):
                 lineNumber += 1
                 
             outFile.write(
-                '\n'.join(offtargets)
+                ''.join(f"{row}\n" for row in offtargets)
             )
+
+# Node function that sorts a file for multiprocessing pool
+def sortingNode(fileToSort, sortedTempDir):
+    # Create a temporary file
+    sortedFile = tempfile.NamedTemporaryFile(
+        mode = 'w+', 
+        delete = False,
+        dir = sortedTempDir
+    )
+    # Sort input file and store in new output dir
+    with open(fileToSort, 'r') as input:
+            # Read 'page'
+            page = input.readlines()
+            # Sort Page
+            page.sort()
+            # Write sorted page to file
+            sortedFile.writelines(page)
+            # Close sorted file
+            sortedFile.close()
 
 def explodeMultiFastaFile(fpInput, fpOutputTempDir):
     newFilesPaths = []
@@ -163,6 +182,38 @@ def bashPaginatedSort(filesToSort):
     # should only contain one list that is sorted, despite the name
     return unsortedFiles 
 
+def paginatedSort(filesToSort, fpOutput): 
+    # Create temp file directory
+    sortedTempDir = tempfile.TemporaryDirectory()
+    printer(f'Created temp directory {sortedTempDir.name} for sorting')
+
+    # Generate args for sorting 
+    args = [
+        (
+            file,
+            sortedTempDir.name 
+        ) for file in filesToSort
+    ]
+
+    # Create multiprocessing pool
+    with multiprocessing.Pool(PROCESSES_COUNT) as mpPool:
+        mpPool.starmap(
+            sortingNode,
+            args
+        )
+
+    sortedFiles = glob.glob(
+        os.path.join(
+            sortedTempDir.name,
+            '*'
+        )
+    )
+    
+    files = [open(file, 'r') for file in sortedFiles]
+
+    with open(fpOutput, 'w') as f:
+        f.writelines(heapq.merge(*files))
+
 def startMultiprocessing(fpInputs, fpOutput):
     printer('Extracting off-targets using multiprocessing approach')
     
@@ -216,16 +267,15 @@ def startMultiprocessing(fpInputs, fpOutput):
     printer('Then, writing to user-specified output file')
     
     # sort in batches
-    fpSorted = bashPaginatedSort(
+    paginatedSort(
         glob.glob(
             os.path.join(
                 fpTempDir.name, 
                 '*'
             )
-        )
+        ),
+        fpOutput
     )
-    
-    shutil.move(fpSorted[0], fpOutput)
 
 if __name__ == '__main__':
     if (len(sys.argv) < 3):

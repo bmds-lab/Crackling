@@ -1,5 +1,6 @@
 from time import localtime, strftime, gmtime
-from subprocess import call
+from subprocess import call, run
+import datetime
 
 # Function that returns the reverse-complement of a given sequence
 def rc(dna):
@@ -27,12 +28,18 @@ def AT_percentage(seq):
 
 def printer(stringFormat):
     print('>>> {}:\t{}\n'.format(
-        strftime("%Y-%m-%d %H:%M:%S", localtime()),
+        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f"),
         stringFormat
     ))
+
 
 
 def caller(*args, **kwargs):
     printer(f"| Calling: {args}")
     call(*args, **kwargs)
+    printer(f"| Finished")
+
+def runner(*args, **kwargs):
+    printer(f"| Calling: {args}")
+    run(*args, **kwargs)
     printer(f"| Finished")

@@ -341,14 +341,14 @@ def Crackling(configMngr):
                         
                 printer(f'\t\t{guidesInPage} guides in this page.')
 
-                caller(
+                runner(
                     "{} --noPS -j{} -i \"{}\" > \"{}\"".format(
                         configMngr['rnafold']['binary'],
                         configMngr['rnafold']['threads'],
                         configMngr['rnafold']['input'],
                         configMngr['rnafold']['output']
                     ), 
-                    shell=True
+                    shell=True, check=True
                 )
 
                 printer('\t\tStarting to process the RNAfold results.')
@@ -579,13 +579,13 @@ def Crackling(configMngr):
 
                 printer(f'\t\t{guidesInPage} guides in this page.')
 
-                caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
+                runner("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
                     configMngr['bowtie2']['binary'],
                     configMngr['input']['bowtie2-index'],
                     configMngr['bowtie2']['threads'],
                     configMngr['bowtie2']['input'],
                     configMngr['bowtie2']['output'])
-                , shell=True)       
+                , shell=True, check=True)       
                 
                 printer('\tStarting to process the Bowtie results.')
                 
@@ -676,7 +676,7 @@ def Crackling(configMngr):
                         testedCount += 1
                 
                 # call the scoring method
-                caller(
+                runner(
                     ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
                         configMngr['offtargetscore']['binary'],
                         configMngr['input']['offtarget-sites'],
@@ -685,7 +685,7 @@ def Crackling(configMngr):
                         str(configMngr['offtargetscore']['score-threshold']),
                         configMngr['offtargetscore']['output'],
                     )],
-                    shell = True
+                    shell = True, check=True
                 )
                 
                 targetsScored = {}
