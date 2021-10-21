@@ -1,6 +1,6 @@
 from time import localtime, strftime, gmtime
 from subprocess import call, run
-import datetime
+import datetime, tempfile
 
 # Function that returns the reverse-complement of a given sequence
 def rc(dna):
@@ -33,13 +33,52 @@ def printer(stringFormat):
     ))
 
 
-
 def caller(*args, **kwargs):
     printer(f"| Calling: {args}")
     call(*args, **kwargs)
     printer(f"| Finished")
 
+
 def runner(*args, **kwargs):
     printer(f"| Calling: {args}")
     run(*args, **kwargs)
     printer(f"| Finished")
+
+
+def explodeMultiFastaFile(fpInput, fpOutputTempDir):
+    newFilesPaths = []
+
+    with open(fpInput, 'r') as fRead:
+        fWrite = None
+
+        for line in fRead:
+            line = line.strip()
+            
+            # just found a new fasta segment. open a new file
+            if line[0] == '>':
+                fpTemp = tempfile.NamedTemporaryFile(
+                    mode = 'w+', 
+                    delete = False,
+                    dir = fpOutputTempDir
+                )
+                
+                # close the current file if necessary
+                if fWrite is not None:
+                    fWrite.write('\n')
+                    fWrite.close()
+                    
+                # open a new one
+                fWrite = open(fpTemp.name, 'w+')
+                newFilesPaths.append(fpTemp.name)
+                
+                fWrite.write(line)
+                fWrite.write('\n')
+
+            if line[0] != '>':
+                fWrite.write(line.upper().strip())
+        
+        # close the last file if necessary
+        if fWrite is not None:
+            fWrite.close()
+            
+    return newFilesPaths

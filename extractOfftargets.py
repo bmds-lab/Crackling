@@ -83,9 +83,7 @@ def processingNode(fpInputs, fpOutputTempDir = None):
 
                 lineNumber += 1
                 
-            outFile.write(
-                ''.join(f"{row}\n" for row in offtargets)
-            )
+            outFile.write(''.join(f'{offTarget}\n' for offTarget in offtargets))
 
 # Node function that sorts a file for multiprocessing pool
 def sortingNode(fileToSort, sortedTempDir):
@@ -106,83 +104,9 @@ def sortingNode(fileToSort, sortedTempDir):
             # Close sorted file
             sortedFile.close()
 
-def explodeMultiFastaFile(fpInput, fpOutputTempDir):
-    newFilesPaths = []
 
-    with open(fpInput, 'r') as fRead:
-        fWrite = None
 
-        for line in fRead:
-            line = line.strip()
-            
-            # just found a new fasta segment. open a new file
-            if line[0] == '>':
-                fpTemp = tempfile.NamedTemporaryFile(
-                    mode = 'w+', 
-                    delete = False,
-                    dir = fpOutputTempDir
-                )
-                
-                # close the current file if necessary
-                if fWrite is not None:
-                    fWrite.write('\n')
-                    fWrite.close()
-                    
-                # open a new one
-                fWrite = open(fpTemp.name, 'w+')
-                newFilesPaths.append(fpTemp.name)
-                
-                fWrite.write(line)
-                fWrite.write('\n')
-
-            if line[0] != '>':
-                fWrite.write(line.upper().strip())
-        
-        # close the last file if necessary
-        if fWrite is not None:
-            fWrite.close()
-            
-    return newFilesPaths
-
-def bashPaginatedSort(filesToSort):
-    # sort in batches
-    unsortedFiles = filesToSort
-
-    while len(unsortedFiles) > 1:
-        newUnsortedFiles = []
-        
-        onlyMerge = False
-        if len(newUnsortedFiles) > 0:
-            onlyMerge = True
-        
-        for pageNum, pageContents in Paginator(
-            unsortedFiles,
-            SORT_PAGE_SIZE
-        ):
-            strFiles = '"' + '" "'.join(pageContents) + '"'
-
-            fpTemp = tempfile.NamedTemporaryFile(
-                mode = 'w+', 
-                delete = False
-            )
-
-            if onlyMerge:
-                caller(f'sort --merge --parallel={PROCESSES_COUNT} {strFiles} > {fpTemp.name}', shell=True)
-            else:
-                caller(f'sort --parallel={PROCESSES_COUNT} {strFiles} > {fpTemp.name}', shell=True)
-            
-            newUnsortedFiles.append(fpTemp.name)
-
-            for fp in pageContents:
-                os.remove(fp)
-            
-        unsortedFiles = newUnsortedFiles
-        onlyMerge = True
-            
-    # should only contain one list that is sorted, despite the name
-    return unsortedFiles 
-
-def paginatedSort(filesToSort, fpOutput): 
+def paginatedSort(filesToSort, fpOutput, mpPool): 
     # Create temp file directory
     sortedTempDir = tempfile.TemporaryDirectory()
     printer(f'Created temp directory {sortedTempDir.name} for sorting')
@@ -195,13 +119,13 @@ def paginatedSort(filesToSort, fpOutput):
         ) for file in filesToSort
     ]
 
-    # Create multiprocessing pool
-    with multiprocessing.Pool(PROCESSES_COUNT) as mpPool:
-        mpPool.starmap(
-            sortingNode,
-            args
-        )
+    # Submit job to multiprocessing pool
+    mpPool.starmap(
+        sortingNode,
+        args
+    )
 
+    # Collect sorted files to merge
     sortedFiles = glob.glob(
         os.path.join(
             sortedTempDir.name,
@@ -209,12 +133,18 @@ def paginatedSort(filesToSort, fpOutput):
         )
     )
     
-    files = [open(file, 'r') for file in sortedFiles]
+    # Open all the sorted files to merge
+    sortedFilesPointers = [open(file, 'r') for file in sortedFiles]
 
+    # Merge all the sorted files 
     with open(fpOutput, 'w') as f:
-        f.writelines(heapq.merge(*files))
+        f.writelines(heapq.merge(*sortedFilesPointers))
+    
+    # Close all of the sorted files
+    for file in sortedFilesPointers:
+        file.close()
 
-def startMultiprocessing(fpInputs, fpOutput):
+def startMultiprocessing(fpInputs, fpOutput, mpPool):
     printer('Extracting off-targets using multiprocessing approach')
     
     printer(f'Allowed processes: {PROCESSES_COUNT}')
@@ -254,12 +184,10 @@ def startMultiprocessing(fpInputs, fpOutput):
 
     printer(f'Beginning to process {len(args)} files...')
 
-    with multiprocessing.Pool(PROCESSES_COUNT) as mpPool:
-        # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
-        mpPool.starmap(
-            processingNode,
-            args
-        )
+    mpPool.starmap(
+        processingNode,
+        args
+    )
 
     printer('Processing completed')
     
@@ -273,8 +201,9 @@ def startMultiprocessing(fpInputs, fpOutput):
                 fpTempDir.name, 
                 '*'
             )
-        ),
-        fpOutput
+        ), 
+        fpOutput,
+        mpPool
     )
 
 if __name__ == '__main__':
@@ -284,10 +213,17 @@ if __name__ == '__main__':
         print('\n')
         exit()
 
+    # Create multiprocessing pool
+    # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
+    mpPool = multiprocessing.Pool(PROCESSES_COUNT)
+
     fpOutput = sys.argv[1]
     
     fpInputs = sys.argv[2:]
         
-    startMultiprocessing(fpInputs, fpOutput)
+    startMultiprocessing(fpInputs, fpOutput, mpPool)
     
+    # Clean up. Close multiprocessing pool
+    mpPool.close()
+
     printer('Goodbye.')
