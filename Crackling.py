@@ -159,21 +159,22 @@ def Crackling(configMngr):
         
         candidateGuides = {}
         
+        # Read the file
         with open(seqFilePath, 'r') as inFile:
-            previousHeader = seqFilePath
+            seqLines = []
+            header = seqFilePath
             for line in inFile:
-                line = line.strip()
-                if line[0] == '>':
-                    seqsByHeader[line[1:]] = ""
-                    previousHeader = line[1:]
-                    continue
+                if line[0] == ">":
+                    if len(seqLines) != 0:
+                        seq = "".join(seqLines).replace(" ", "").replace("\r", "")
+                        if len(seq) > 0:
+                            seqsByHeader[header] = seq
+                    seqLines = []
+                    header = line.strip()
                 else:
-                    if previousHeader not in seqsByHeader:
-                        # it could be a plain text file, without a header
-                        seqsByHeader[previousHeader] = ""
-                        
-                    seqsByHeader[previousHeader] += line.strip()
-
+                    seqLines.append(line)
+            seqsByHeader[header] = "".join(seqLines).replace(" ", "").replace("\r", "")
+            
         pattern_forward = r"(?=([ATCG]{21}GG))"
         pattern_reverse = r"(?=(CC[ACGT]{21}))"
 
@@ -658,12 +659,13 @@ def Crackling(configMngr):
                 
                 # call the scoring method
                 caller(
-                    ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
+                    ["{} \"{}\" \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
                         configMngr['offtargetscore']['binary'],
                         configMngr['input']['offtarget-sites'],
                         configMngr['offtargetscore']['input'],
                         str(configMngr['offtargetscore']['max-distance']),
                         str(configMngr['offtargetscore']['score-threshold']),
+                        str(configMngr['offtargetscore']['method']),
                         configMngr['offtargetscore']['output'],
                     )],
                     shell = True
