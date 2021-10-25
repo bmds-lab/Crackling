@@ -47,32 +47,26 @@ We present Crackling, a new method for whole-genome identification of suitable C
 1. Extract off-target sites:
 
     ```
-    python3.7 ExtractOfftargets.py <output-file>  (input-files... | input-dir>)
+    python extractOfftargets.py <output-file>  {<input-files>... | input-dir>}
     ```
 
     For example:
 
     ```
-    python extractOfftargets.py ~/genomes/mouse.fa ~/genomes/mouse_offtargets.txt
+    python extractOfftargets.py ~/genomes/mouse_offtargets.txt ~/genomes/mouse.fa
     ```
 
    The input provided can be:
 
-   - A single, or a list, of multi-FASTA formatted files
+   - A single, or a space sperated list, of multi-FASTA formatted files
 
    - A directory, for which we scan every file by parsing, using [glob](https://docs.python.org/3/library/glob.html): `<input-dir>/*`
 
-  
+   Note: Unlike previous versions, sorting the extracted off-targets is no longer required as extractOfftargets.py completes this automatically now.
 
-2. Sort the off-target sites. 
 
-    On Linux:
-    
-    ```
-    sort --parallel=64 ~/genomes/mouse_offtargets.txt > ~/genomes/mouse_offtargets-sorted.txt
-    ```
 
-3. Build the ISSL index
+2. Build the ISSL index
 
     Compile the indexer first: 
     
