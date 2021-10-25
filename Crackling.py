@@ -7,7 +7,7 @@ Config:
     - See config.ini
 '''
 
-import argparse, ast, csv, joblib, os, re, sys, time
+import argparse, ast, csv, joblib, os, re, sys, time, tempfile, psutil
 from sklearn.svm import SVC
 
 from ConfigManager import ConfigManager
@@ -157,7 +157,7 @@ def Crackling(configMngr):
         # key: FASTA header, value: sequence
         seqsByHeader = {}
         
-        candidateGuides = {}
+        preCandidateGuides = {}
         
         # We first remove all the line breaks within a given sequence (FASTA format)
         with open(seqFilePath, 'r') as inFile, open('tempFile.fa', 'w') as outFile:
@@ -207,28 +207,92 @@ def Crackling(configMngr):
                 p = re.compile(pattern)
                 for m in p.finditer(seq):
                     target23 = seqModifier(seq[m.start() : m.start() + 23])
-                    if target23 not in candidateGuides:
-                        candidateGuides[target23] = DEFAULT_GUIDE_PROPERTIES.copy()
-                        candidateGuides[target23]['seq'] = target23
-                        candidateGuides[target23]['header'] = seqHeader
-                        candidateGuides[target23]['start'] = m.start()
-                        candidateGuides[target23]['end'] = m.start() + 23
-                        candidateGuides[target23]['strand'] = strand
+                    if target23 not in preCandidateGuides:
+                        preCandidateGuides[target23] = DEFAULT_GUIDE_PROPERTIES.copy()
+                        preCandidateGuides[target23]['seq'] = target23
+                        preCandidateGuides[target23]['header'] = seqHeader
+                        preCandidateGuides[target23]['start'] = m.start()
+                        preCandidateGuides[target23]['end'] = m.start() + 23
+                        preCandidateGuides[target23]['strand'] = strand
                     else:
                         # we've already seen this guide, make the positioning ambiguous
-                        candidateGuides[target23]['seqCount'] += 1
-                        candidateGuides[target23]['header'] = CODE_AMBIGUOUS
-                        candidateGuides[target23]['start'] = CODE_AMBIGUOUS
-                        candidateGuides[target23]['end'] = CODE_AMBIGUOUS
-                        candidateGuides[target23]['strand'] = CODE_AMBIGUOUS
-                        
+                        preCandidateGuides[target23]['seqCount'] += 1
+                        preCandidateGuides[target23]['header'] = CODE_AMBIGUOUS
+                        preCandidateGuides[target23]['start'] = CODE_AMBIGUOUS
+                        preCandidateGuides[target23]['end'] = CODE_AMBIGUOUS
+                        preCandidateGuides[target23]['strand'] = CODE_AMBIGUOUS
                         numberOfDuplicateGuides += 1
 
-        del seqsByHeader
-
-        printer(f'Identified {len(candidateGuides)} possible target sites.')
+        printer(f'Identified {len(preCandidateGuides)} possible target sites.')
         
-        printer(f'\t{numberOfDuplicateGuides} of {len(candidateGuides)} were seen more than once.')
+        printer(f'\t{numberOfDuplicateGuides} of {len(preCandidateGuides)} were seen more than once.')
+
+        del seqsByHeader
+        
+        # Create a list to track temp files
+        tempGuideFiles = []
+        # Page size variable (TO DO: Add this option to config)
+        guidePageSize = 5000000
+        # Variable to track number of guides added to temp file
+        guideCount = 0
+        
+        # Create temp directory to store temp files
+        fpPreProcTempDir = tempfile.TemporaryDirectory()
+        # Create new temp file
+        seqFile = tempfile.NamedTemporaryFile(
+            mode = 'w', 
+            delete = False,
+            dir = fpPreProcTempDir.name
+        )
+        # Record temp file name
+        tempGuideFiles.append(seqFile.name)
+        # Create csv writer for temp file
+        csvWriter = csv.writer(seqFile, delimiter=configMngr['output']['delimiter'],
+                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+        
+        # Iterate through the preCandidateGuide dictionary
+        for seq, dict in preCandidateGuides.items():
+            # Keep track of number of guies in current temp file
+            guideCount += 1
+            # If page size is exceeded open new page
+            if guideCount > guidePageSize:
+                # Close old file
+                seqFile.close()
+                # Create new temp file
+                seqFile = tempfile.NamedTemporaryFile(
+                    mode = 'w', 
+                    delete = False,
+                    dir = fpPreProcTempDir.name
+                )
+                # Record temp file name
+                tempGuideFiles.append(seqFile.name)
+                # Reset guide count
+                guideCount = 0
+            # Record candidate guide to temp file
+            csvWriter.writerow([dict['seq'], dict['header'], dict['start'], dict['end'], dict['strand'], dict['seqCount']])
+        # Finished processing candidate guides, close temp file
+        seqFile.close()
+        
+        # Remove old candidate guide dictionary to save memory
+        del preCandidateGuides
+
+    for tempGuideFile in tempGuideFiles:
+        # Create new candidate guide dictionary
+        candidateGuides = {}
+        # Load guides from temp file
+        with open(tempGuideFile, 'r') as inputFp:
+            # Create csv reader to parse temp file
+            csvReader = csv.reader(inputFp, delimiter=configMngr['output']['delimiter'],
+                quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+            # Rebuild dictonary from temp file
+            for row in csvReader:
+                candidateGuides[row[0]] = DEFAULT_GUIDE_PROPERTIES.copy()
+                candidateGuides[row[0]]['seq'] = row[0]
+                candidateGuides[row[0]]['header'] = row[1]
+                candidateGuides[row[0]]['start'] = row[2]
+                candidateGuides[row[0]]['end'] = row[3]
+                candidateGuides[row[0]]['strand'] = row[4]
+                candidateGuides[row[0]]['seqCount'] = int(row[5])
 
         ############################################
         ##     Removing targets with leading T    ##
@@ -287,7 +351,6 @@ def Crackling(configMngr):
                     failedCount += 1
                 else:
                     candidateGuides[target23]['passedTTTT'] = CODE_ACCEPTED
-               
                 testedCount += 1
                 
             printer(f'\t{failedCount} of {testedCount} failed here.')
@@ -298,7 +361,6 @@ def Crackling(configMngr):
         if (configMngr['consensus'].getboolean('mm10db')):
             printer('mm10db - check secondary structure.')
             
-            import psutil
             mem = psutil.virtual_memory()
             printer(f'There is {(mem.available/1024/1024)} megabytes of memory available.')
             
@@ -450,7 +512,7 @@ def Crackling(configMngr):
             printer(f'\t{failedCount} failed.')
                 
             del acceptedCount
-                 
+
         #########################################
         ##         sgRNAScorer 2.0 model       ##
         ######################################### 
@@ -491,7 +553,7 @@ def Crackling(configMngr):
                     candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_ACCEPTED
                             
             printer(f'\t{failedCount} of {testedCount} failed here.')
-           
+
         #########################################
         ##                 G20                 ##
         #########################################
@@ -675,16 +737,25 @@ def Crackling(configMngr):
                         fTargetsToScore.write(target+"\n")
                         testedCount += 1
                 
+                                # Convert line endings
+                runner(
+                    "\"{}\" \"{}\" ".format(
+                        'dos2unix',
+                        configMngr['offtargetscore']['input'],
+                    ),
+                    shell = True, check=True
+                )
+                
                 # call the scoring method
                 runner(
-                    ["{} \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
+                    "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
                         configMngr['offtargetscore']['binary'],
                         configMngr['input']['offtarget-sites'],
                         configMngr['offtargetscore']['input'],
                         str(configMngr['offtargetscore']['max-distance']),
                         str(configMngr['offtargetscore']['score-threshold']),
                         configMngr['offtargetscore']['output'],
-                    )],
+                    ),
                     shell = True, check=True
                 )
                 
@@ -716,8 +787,8 @@ def Crackling(configMngr):
         # Write guides to file. Include scores etc.
         with open(configMngr['output']['file'], 'a+') as fOpen:
             csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
-                            quotechar='"', quoting=csv.QUOTE_MINIMAL)
-                         
+                            quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+
             csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
             
             for target23 in candidateGuides:
