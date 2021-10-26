@@ -266,6 +266,9 @@ def Crackling(configMngr):
                 )
                 # Record temp file name
                 tempGuideFiles.append(seqFile.name)
+                # Create csv writer for temp file
+                csvWriter = csv.writer(seqFile, delimiter=configMngr['output']['delimiter'],
+                                quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
                 # Reset guide count
                 guideCount = 0
             # Record candidate guide to temp file
