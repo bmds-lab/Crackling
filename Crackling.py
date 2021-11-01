@@ -28,8 +28,6 @@ def Crackling(configMngr):
     lastRunTimeSec = 0
     lastScaffoldSizeBytes = 0
     totalRunTimeSec = 0
-    
-    start_time = time.time()
 
     ####################################
     ###     Run-time Optimisation     ##
@@ -287,6 +285,9 @@ def Crackling(configMngr):
             csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
 
     for tempGuideFile in tempGuideFiles:
+        # Run start time
+        start_time = time.time()
+            
         # Create new candidate guide dictionary
         candidateGuides = {}
         # Load guides from temp file
