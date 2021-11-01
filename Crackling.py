@@ -270,7 +270,7 @@ def Crackling(configMngr):
                 csvWriter = csv.writer(seqFile, delimiter=configMngr['output']['delimiter'],
                                 quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
                 # Reset guide count
-                guideCount = 0
+                guideCount = 1
             # Record candidate guide to temp file
             csvWriter.writerow([dict['seq'], dict['header'], dict['start'], dict['end'], dict['strand'], dict['seqCount']])
         # Finished processing candidate guides, close temp file
