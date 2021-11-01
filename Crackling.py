@@ -278,6 +278,13 @@ def Crackling(configMngr):
         
         # Remove old candidate guide dictionary to save memory
         del preCandidateGuides
+        
+        # Write header line for output file
+        with open(configMngr['output']['file'], 'a+') as fOpen:
+            csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
+                            quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+
+            csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
 
     for tempGuideFile in tempGuideFiles:
         # Create new candidate guide dictionary
@@ -791,8 +798,6 @@ def Crackling(configMngr):
         with open(configMngr['output']['file'], 'a+') as fOpen:
             csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
                             quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
-
-            csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
             
             for target23 in candidateGuides:
                 output = [candidateGuides[target23][x] for x in DEFAULT_GUIDE_PROPERTIES_ORDER]
