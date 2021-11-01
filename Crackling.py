@@ -206,12 +206,14 @@ def Crackling(configMngr):
                 for m in p.finditer(seq):
                     target23 = seqModifier(seq[m.start() : m.start() + 23])
                     if target23 not in preCandidateGuides:
-                        preCandidateGuides[target23] = DEFAULT_GUIDE_PROPERTIES.copy()
-                        preCandidateGuides[target23]['seq'] = target23
-                        preCandidateGuides[target23]['header'] = seqHeader
-                        preCandidateGuides[target23]['start'] = m.start()
-                        preCandidateGuides[target23]['end'] = m.start() + 23
-                        preCandidateGuides[target23]['strand'] = strand
+                        preCandidateGuides[target23] = {
+                            'seq' :  target23,
+                            'header' : seqHeader,
+                            'start' :  m.start(),
+                            'end' : m.start() + 23,
+                            'strand' : strand,
+                            'seqCount' : 1
+                        }
                     else:
                         # we've already seen this guide, make the positioning ambiguous
                         preCandidateGuides[target23]['seqCount'] += 1
