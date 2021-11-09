@@ -135,8 +135,10 @@ def Crackling(configMngr):
     ###################################
     printer('Analysing files...') 
     
-    numberOfDuplicateGuides = 0
-    
+    candidateGuides = set()
+    duplicateGuides = set()
+    duplicateGuidesCount = 0
+
     for seqFilePath in configMngr.getIterFilesToProcess():
         printer('Identifying possible target sites in: {}'.format(
             seqFilePath
@@ -155,23 +157,21 @@ def Crackling(configMngr):
         # key: FASTA header, value: sequence
         seqsByHeader = {}
         
-        preCandidateGuides = {}
-        
         # We first remove all the line breaks within a given sequence (FASTA format)
-        with open(seqFilePath, 'r') as inFile, open('tempFile.fa', 'w') as outFile:
+        with open(seqFilePath, 'r') as inFile, tempfile.NamedTemporaryFile(mode='w',delete=False) as parsedFile:
             previousHeader = seqFilePath
             for line in inFile:
                 line = line.strip()
                 if line[0] == '>':
                     # this is the header line for a new sequence, so we break the previous line and write the header as a new line
-                    outFile.write("\n"+line+"\n")
+                    parsedFile.write("\n"+line+"\n")
                     continue
                 else:
                     # this is (part of) the sequence; we write it without line break
-                    outFile.write(line.strip())
+                    parsedFile.write(line.strip())
 
         # We read and process the file without line breaks
-        with open('tempFile.fa', 'r') as inFile:
+        with open(parsedFile.name, 'r') as inFile:
             previousHeader = seqFilePath
             for line in inFile:
                 line = line.strip()
@@ -190,9 +190,30 @@ def Crackling(configMngr):
                     # we save the sequence
                     seqsByHeader[previousHeader] += line.strip()
 
-        
+        # Patterns for guide matching
         pattern_forward = r"(?=([ATCG]{21}GG))"
         pattern_reverse = r"(?=(CC[ACGT]{21}))"
+
+        # Create a list to track temp files
+        tempGuideFiles = []
+        # Page size variable (TO DO: Add this option to config)
+        guidePageSize = 250000
+        # Variable to track number of guides added to temp file
+        guideCount = 0
+        # Create temp directory to store temp files
+        preProcTempDir = tempfile.TemporaryDirectory()
+        # Create new temp file
+        guideTempFile = tempfile.NamedTemporaryFile(
+            mode = 'w', 
+            delete = False,
+            dir = preProcTempDir.name
+        )
+        # Record temp file name
+        tempGuideFiles.append(guideTempFile.name)   
+        # Create csv writer for temp file
+        csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
+                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+
 
         for seqHeader in seqsByHeader:
             seq = seqsByHeader[seqHeader]
@@ -205,79 +226,45 @@ def Crackling(configMngr):
                 p = re.compile(pattern)
                 for m in p.finditer(seq):
                     target23 = seqModifier(seq[m.start() : m.start() + 23])
-                    if target23 not in preCandidateGuides:
-                        preCandidateGuides[target23] = {
-                            'seq' :  target23,
-                            'header' : seqHeader,
-                            'start' :  m.start(),
-                            'end' : m.start() + 23,
-                            'strand' : strand,
-                            'seqCount' : 1
-                        }
+                    if encodeString(target23) not in candidateGuides:
+                        # Increase guide count
+                        guideCount += 1
+                        # If page size is exceeded open new page
+                        if guideCount > guidePageSize:
+                            # Close old file
+                            guideTempFile.close()
+                            # Create new temp file
+                            guideTempFile = tempfile.NamedTemporaryFile(
+                                mode = 'w', 
+                    mode = 'w', 
+                                mode = 'w', 
+                                delete = False,
+                                dir = preProcTempDir.name
+                            )
+                            # Record temp file name
+                            tempGuideFiles.append(guideTempFile.name)
+                            # Create csv writer for temp file
+                            csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
+                                            quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+                            # Reset guide count
+                            guideCount = 1
+                        # Record guide
+                        candidateGuides.add(encodeString(target23))
+                        # Record candidate guide to temp file
+                        csvWriter.writerow([target23, seqHeader,  m.start(),  m.start() + 23, strand, 1])
                     else:
                         # we've already seen this guide, make the positioning ambiguous
-                        preCandidateGuides[target23]['seqCount'] += 1
-                        preCandidateGuides[target23]['header'] = CODE_AMBIGUOUS
-                        preCandidateGuides[target23]['start'] = CODE_AMBIGUOUS
-                        preCandidateGuides[target23]['end'] = CODE_AMBIGUOUS
-                        preCandidateGuides[target23]['strand'] = CODE_AMBIGUOUS
-                        numberOfDuplicateGuides += 1
+                        duplicateGuides.add(encodeString(target23))
+                        duplicateGuidesCount += 1
 
-        printer(f'Identified {len(preCandidateGuides)} possible target sites.')
+        guideTempFile.close()
+
+        printer(f'Identified {len(candidateGuides)} possible target sites.')
         
-        printer(f'\t{numberOfDuplicateGuides} of {len(preCandidateGuides)} were seen more than once.')
+        printer(f'\t{len(duplicateGuides)} of {len(candidateGuides)} were seen more than once.')
+        printer(f'\t{duplicateGuidesCount} of {len(candidateGuides)} were seen more than once.')
 
         del seqsByHeader
-        
-        # Create a list to track temp files
-        tempGuideFiles = []
-        # Page size variable (TO DO: Add this option to config)
-        guidePageSize = 5000000
-        # Variable to track number of guides added to temp file
-        guideCount = 0
-        
-        # Create temp directory to store temp files
-        fpPreProcTempDir = tempfile.TemporaryDirectory()
-        # Create new temp file
-        seqFile = tempfile.NamedTemporaryFile(
-            mode = 'w', 
-            delete = False,
-            dir = fpPreProcTempDir.name
-        )
-        # Record temp file name
-        tempGuideFiles.append(seqFile.name)
-        # Create csv writer for temp file
-        csvWriter = csv.writer(seqFile, delimiter=configMngr['output']['delimiter'],
-                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
-        
-        # Iterate through the preCandidateGuide dictionary
-        for seq, dict in preCandidateGuides.items():
-            # Keep track of number of guies in current temp file
-            guideCount += 1
-            # If page size is exceeded open new page
-            if guideCount > guidePageSize:
-                # Close old file
-                seqFile.close()
-                # Create new temp file
-                seqFile = tempfile.NamedTemporaryFile(
-                    mode = 'w', 
-                    delete = False,
-                    dir = fpPreProcTempDir.name
-                )
-                # Record temp file name
-                tempGuideFiles.append(seqFile.name)
-                # Create csv writer for temp file
-                csvWriter = csv.writer(seqFile, delimiter=configMngr['output']['delimiter'],
-                                quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
-                # Reset guide count
-                guideCount = 1
-            # Record candidate guide to temp file
-            csvWriter.writerow([dict['seq'], dict['header'], dict['start'], dict['end'], dict['strand'], dict['seqCount']])
-        # Finished processing candidate guides, close temp file
-        seqFile.close()
-        
-        # Remove old candidate guide dictionary to save memory
-        del preCandidateGuides
         
         # Write header line for output file
         with open(configMngr['output']['file'], 'a+') as fOpen:
@@ -301,11 +288,18 @@ def Crackling(configMngr):
             for row in csvReader:
                 candidateGuides[row[0]] = DEFAULT_GUIDE_PROPERTIES.copy()
                 candidateGuides[row[0]]['seq'] = row[0]
-                candidateGuides[row[0]]['header'] = row[1]
-                candidateGuides[row[0]]['start'] = row[2]
-                candidateGuides[row[0]]['end'] = row[3]
-                candidateGuides[row[0]]['strand'] = row[4]
-                candidateGuides[row[0]]['seqCount'] = int(row[5])
+                if encodeString(row[0]) in duplicateGuides:
+                    candidateGuides[row[0]]['header'] = CODE_AMBIGUOUS
+                    candidateGuides[row[0]]['start'] = CODE_AMBIGUOUS
+                    candidateGuides[row[0]]['end'] = CODE_AMBIGUOUS
+                    candidateGuides[row[0]]['strand'] = CODE_AMBIGUOUS
+                    candidateGuides[row[0]]['seqCount'] = 2
+                else:
+                    candidateGuides[row[0]]['header'] = row[1]
+                    candidateGuides[row[0]]['start'] = row[2]
+                    candidateGuides[row[0]]['end'] = row[3]
+                    candidateGuides[row[0]]['strand'] = row[4]
+                    candidateGuides[row[0]]['seqCount'] = int(row[5])
 
         ############################################
         ##     Removing targets with leading T    ##

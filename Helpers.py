@@ -82,3 +82,37 @@ def explodeMultiFastaFile(fpInput, fpOutputTempDir):
             fWrite.close()
             
     return newFilesPaths
+
+def encodeString(guideString):
+    A = 0b00
+    T = 0b01
+    G = 0b10
+    C = 0b11
+    bitEncoded = 0b0
+    for base in guideString:
+        bitEncoded = bitEncoded<<2
+        if base == 'A':
+            bitEncoded = bitEncoded | A
+        elif base == 'T':
+            bitEncoded = bitEncoded | T
+        elif base == 'G':
+            bitEncoded = bitEncoded | G
+        elif base == 'C':
+            bitEncoded = bitEncoded | C
+    return bitEncoded
+
+def decode2Bit(guideString):
+    bitMask = 0b11
+    stringDecoded = ''
+    for i in range(23):
+        decodedChar = guideString & bitMask
+        if decodedChar == 0b00:
+            stringDecoded = 'A' + stringDecoded
+        elif decodedChar == 0b01:
+            stringDecoded = 'T' + stringDecoded
+        elif decodedChar == 0b10:
+            stringDecoded = 'G' + stringDecoded
+        elif decodedChar == 0b11:
+            stringDecoded = 'C' + stringDecoded
+        guideString = guideString>>2
+    return stringDecoded
