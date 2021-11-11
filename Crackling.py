@@ -137,6 +137,8 @@ def Crackling(configMngr):
     
     candidateGuides = set()
     duplicateGuides = set()
+    recordedSeqeunces = set()
+
     duplicateGuidesCount = 0
 
     for seqFilePath in configMngr.getIterFilesToProcess():
@@ -154,9 +156,6 @@ def Crackling(configMngr):
 
         completedSizeBytes += lastScaffoldSizeBytes
 
-        # key: FASTA header, value: sequence
-        seqsByHeader = {}
-        
         # We first remove all the line breaks within a given sequence (FASTA format)
         with open(seqFilePath, 'r') as inFile, tempfile.NamedTemporaryFile(mode='w',delete=False) as parsedFile:
             previousHeader = seqFilePath
@@ -170,25 +169,25 @@ def Crackling(configMngr):
                     # this is (part of) the sequence; we write it without line break
                     parsedFile.write(line.strip())
 
-        # We read and process the file without line breaks
-        with open(parsedFile.name, 'r') as inFile:
-            previousHeader = seqFilePath
-            for line in inFile:
-                line = line.strip()
-                if line=="":
-                    # some lines (e.g., first line in file) can be just a line break
-                    continue
-                elif line[0] == '>':
-                    # this is the header line for a new sequence
-                    seqsByHeader[line[1:]] = ""
-                    previousHeader = line[1:]
-                    continue
-                else:
-                    if previousHeader not in seqsByHeader:
-                        # it could be a plain text file, without a header
-                        seqsByHeader[previousHeader] = ""
-                    # we save the sequence
-                    seqsByHeader[previousHeader] += line.strip()
+        # # We read and process the file without line breaks
+        # with open(parsedFile.name, 'r') as inFile:
+        #     previousHeader = seqFilePath
+        #     for line in inFile:
+        #         line = line.strip()
+        #         if line=="":
+        #             # some lines (e.g., first line in file) can be just a line break
+        #             continue
+        #         elif line[0] == '>':
+        #             # this is the header line for a new sequence
+        #             seqsByHeader[line[1:]] = ""
+        #             previousHeader = line[1:]
+        #             continue
+        #         else:
+        #             if previousHeader not in seqsByHeader:
+        #                 # it could be a plain text file, without a header
+        #                 seqsByHeader[previousHeader] = ""
+        #             # we save the sequence
+        #             seqsByHeader[previousHeader] += line.strip()
 
         # Patterns for guide matching
         pattern_forward = r"(?=([ATCG]{21}GG))"
@@ -197,7 +196,7 @@ def Crackling(configMngr):
         # Create a list to track temp files
         tempGuideFiles = []
         # Page size variable (TO DO: Add this option to config)
-        guidePageSize = 250000
+        guidePageSize = 5000000
         # Variable to track number of guides added to temp file
         guideCount = 0
         # Create temp directory to store temp files
@@ -214,10 +213,63 @@ def Crackling(configMngr):
         csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
                         quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
 
+        with open(parsedFile.name, 'r') as inFile:
+            seqHeader = ''
+            seq = ''
+            for line in inFile:
+                line = line.strip()
+                if line=="":
+                    # some lines (e.g., first line in file) can be just a line break
+                    continue
+                elif line[0] == '>':
+                    if seqHeader != '' and seq != '' and seqHeader not in recordedSeqeunces:
+                        recordedSeqeunces.add(seqHeader)
+                        # New sequence deteced, process seqeunce
+                        # once for forward, once for reverse
+                        for pattern, strand, seqModifier in [
+                            [pattern_forward, '+', lambda x : x], 
+                            [pattern_reverse, '-', lambda x : rc(x)]
+                        ]:
+                            p = re.compile(pattern)
+                            for m in p.finditer(seq):
+                                target23 = seqModifier(seq[m.start() : m.start() + 23])
+                                if encodeString(target23) not in candidateGuides:
+                                    # Increase guide count
+                                    guideCount += 1
+                                    # If page size is exceeded open new page
+                                    if guideCount > guidePageSize:
+                                        # Close old file
+                                        guideTempFile.close()
+                                        # Create new temp file
+                                        guideTempFile = tempfile.NamedTemporaryFile(
+                                            mode = 'w', 
+                                            delete = False,
+                                            dir = preProcTempDir.name
+                                        )
+                                        # Record temp file name
+                                        tempGuideFiles.append(guideTempFile.name)
+                                        # Create csv writer for temp file
+                                        csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
+                                                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+                                        # Reset guide count
+                                        guideCount = 1
+                                    # Record guide
+                                    candidateGuides.add(encodeString(target23))
+                                    # Record candidate guide to temp file
+                                    csvWriter.writerow([target23, seqHeader,  m.start(),  m.start() + 23, strand, 1])
+                                else:
+                                    # we've already seen this guide, make the positioning ambiguous
+                                    duplicateGuides.add(encodeString(target23))
+                                    duplicateGuidesCount += 1
+                    # this is the header line for a new sequence
+                    seqHeader = line[1:]
+                    seq = ''
+                else:
+                    seq += line.strip()
 
-        for seqHeader in seqsByHeader:
-            seq = seqsByHeader[seqHeader]
-            
+        if seqHeader != '' and seq != '' and seqHeader not in recordedSeqeunces:
+            recordedSeqeunces.add(seqHeader)
+            # New sequence deteced, process seqeunce
             # once for forward, once for reverse
             for pattern, strand, seqModifier in [
                 [pattern_forward, '+', lambda x : x], 
@@ -235,8 +287,6 @@ def Crackling(configMngr):
                             guideTempFile.close()
                             # Create new temp file
                             guideTempFile = tempfile.NamedTemporaryFile(
-                                mode = 'w', 
-                    mode = 'w', 
                                 mode = 'w', 
                                 delete = False,
                                 dir = preProcTempDir.name
@@ -264,14 +314,15 @@ def Crackling(configMngr):
         printer(f'\t{len(duplicateGuides)} of {len(candidateGuides)} were seen more than once.')
         printer(f'\t{duplicateGuidesCount} of {len(candidateGuides)} were seen more than once.')
 
-        del seqsByHeader
-        
         # Write header line for output file
         with open(configMngr['output']['file'], 'a+') as fOpen:
             csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
                             quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
 
             csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
+
+    del candidateGuides
+    del recordedSeqeunces
 
     for tempGuideFile in tempGuideFiles:
         # Run start time
