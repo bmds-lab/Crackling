@@ -12,6 +12,7 @@ from sklearn.svm import SVC
 
 from ConfigManager import ConfigManager
 from Paginator import Paginator
+from Batchinator import Batchinator
 from Constants import *
 from Helpers import * 
 
@@ -130,19 +131,19 @@ def Crackling(configMngr):
             if doAssess:
                 yield target23
     
-    def processSeqeunce(seqeunce):
+    def processSequence(sequence):
         # Patterns for guide matching
         pattern_forward = r"(?=([ATCG]{21}GG))"
         pattern_reverse = r"(?=(CC[ACGT]{21}))"
 
-        # New sequence deteced, process seqeunce
+        # New sequence deteced, process sequence
         # once for forward, once for reverse
         for pattern, strand, seqModifier in [
             [pattern_forward, '+', lambda x : x], 
             [pattern_reverse, '-', lambda x : rc(x)]
         ]:
             p = re.compile(pattern)
-            for m in p.finditer(seqeunce):
+            for m in p.finditer(sequence):
                 target23 = seqModifier(seq[m.start() : m.start() + 23])
                 yield [target23, seqHeader,  m.start(),  m.start() + 23, strand, 1]
 
@@ -153,7 +154,7 @@ def Crackling(configMngr):
     
     candidateGuides = set()
     duplicateGuides = set()
-    recordedSeqeunces = set()
+    recordedSequences = set()
 
     duplicateGuidesCount = 0
 
@@ -174,121 +175,66 @@ def Crackling(configMngr):
 
         # We first remove all the line breaks within a given sequence (FASTA format)
         with open(seqFilePath, 'r') as inFile, tempfile.NamedTemporaryFile(mode='w',delete=False) as parsedFile:
-            previousHeader = seqFilePath
             for line in inFile:
                 line = line.strip()
                 if line[0] == '>':
                     # this is the header line for a new sequence, so we break the previous line and write the header as a new line
                     parsedFile.write("\n"+line+"\n")
-                    continue
                 else:
                     # this is (part of) the sequence; we write it without line break
                     parsedFile.write(line.strip())
 
-        # Create a list to track temp files
-        tempGuideFiles = []
-        # Page size variable (TO DO: Add this option to config)
-        guidePageSize = 5000000
-        # Variable to track number of guides added to temp file
-        guideCount = 0
-        # Create temp directory to store temp files
-        preProcTempDir = tempfile.TemporaryDirectory()
-        # Create new temp file
-        guideTempFile = tempfile.NamedTemporaryFile(
-            mode = 'w', 
-            delete = False,
-            dir = preProcTempDir.name
-        )
-        # Record temp file name
-        tempGuideFiles.append(guideTempFile.name)   
-        # Create csv writer for temp file
-        csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
-                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+        guideBatchinator = Batchinator(5000000)
 
         with open(parsedFile.name, 'r') as inFile:
             seqHeader = ''
             seq = ''
             for line in inFile:
+                # Remove garbage from line
                 line = line.strip()
+                # Some lines (e.g., first line in file) can be just a line break, move to next line
                 if line=="":
-                    # some lines (e.g., first line in file) can be just a line break
                     continue
-                elif line[0] == '>':
-                    # If we haven't seen the seqeunce OR we have found a sequence without header
-                    if (seqHeader not in recordedSeqeunces) or (seqHeader == '' and seq != ''): 
+                # Header line, start of a new sequence
+                elif line[0]=='>':
+                    # If we haven't seen the sequence OR we have found a sequence without header
+                    if (seqHeader not in recordedSequences) or (seqHeader=='' and seq!=''): 
                         # Record header
-                        recordedSeqeunces.add(seqHeader)
-                        # Process the seqeunce
-                        for guide in processSeqeunce(seq):
+                        recordedSequences.add(seqHeader)
+                        # Process the sequence
+                        for guide in processSequence(seq):
                             # Check if guide has been seen before
                             if guide[0] not in candidateGuides:
-                                # Increase guide count
-                                guideCount += 1
-                                # If page size is exceeded open new page
-                                if guideCount > guidePageSize:
-                                    # Close old file
-                                    guideTempFile.close()
-                                    # Create new temp file
-                                    guideTempFile = tempfile.NamedTemporaryFile(
-                                        mode = 'w', 
-                                        delete = False,
-                                        dir = preProcTempDir.name
-                                    )
-                                    # Record temp file name
-                                    tempGuideFiles.append(guideTempFile.name)
-                                    # Create csv writer for temp file
-                                    csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
-                                                    quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
-                                    # Reset guide count
-                                    guideCount = 1
                                 # Record guide
                                 candidateGuides.add(guide[0])
                                 # Record candidate guide to temp file
-                                csvWriter.writerow(guide)
+                                guideBatchinator.recordEntry(guide)
                             else:
-                                # we've already seen this guide, make the positioning ambiguous
+                                # Record duplicate guide
                                 duplicateGuides.add(guide[0])
+                                # Increase duplicate guide count
                                 duplicateGuidesCount += 1
+                    # Update sequence and sequence header 
+                    seqHeader = line[1:]
+                    seq = ''
+                # Sequence line, section of existing sequence
                 else:
+                    # Append section to total sequence
                     seq += line.strip()
 
-        # If we haven't seen the seqeunce OR we have found a sequence without header
-        if (seqHeader not in recordedSeqeunces) or (seqHeader == '' and seq != ''): 
-            # Record header
-            recordedSeqeunces.add(seqHeader)
-            # Process the seqeunce
-            for guide in processSeqeunce(seq):
+            # Process the last sequence
+            for guide in processSequence(seq):
                 # Check if guide has been seen before
                 if guide[0] not in candidateGuides:
-                    # Increase guide count
-                    guideCount += 1
-                    # If page size is exceeded open new page
-                    if guideCount > guidePageSize:
-                        # Close old file
-                        guideTempFile.close()
-                        # Create new temp file
-                        guideTempFile = tempfile.NamedTemporaryFile(
-                            mode = 'w', 
-                            delete = False,
-                            dir = preProcTempDir.name
-                        )
-                        # Record temp file name
-                        tempGuideFiles.append(guideTempFile.name)
-                        # Create csv writer for temp file
-                        csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
-                                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
-                        # Reset guide count
-                        guideCount = 1
                     # Record guide
                     candidateGuides.add(guide[0])
                     # Record candidate guide to temp file
-                    csvWriter.writerow(guide)
+                    guideBatchinator.recordEntry(guide)
                 else:
-                    # we've already seen this guide, make the positioning ambiguous
+                    # Record duplicate guide
                     duplicateGuides.add(guide[0])
+                    # Increase duplicate guide count
                     duplicateGuidesCount += 1
-
-        guideTempFile.close()
 
         printer(f'Identified {len(candidateGuides)} possible target sites.')
         
@@ -303,16 +249,16 @@ def Crackling(configMngr):
             csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
 
     del candidateGuides
-    del recordedSeqeunces
+    del recordedSequences
 
-    for tempGuideFile in tempGuideFiles:
+    for batchFile in guideBatchinator:
         # Run start time
         start_time = time.time()
             
         # Create new candidate guide dictionary
         candidateGuides = {}
         # Load guides from temp file
-        with open(tempGuideFile, 'r') as inputFp:
+        with open(batchFile, 'r') as inputFp:
             # Create csv reader to parse temp file
             csvReader = csv.reader(inputFp, delimiter=configMngr['output']['delimiter'],
                 quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
@@ -320,7 +266,7 @@ def Crackling(configMngr):
             for row in csvReader:
                 candidateGuides[row[0]] = DEFAULT_GUIDE_PROPERTIES.copy()
                 candidateGuides[row[0]]['seq'] = row[0]
-                if encodeString(row[0]) in duplicateGuides:
+                if row[0] in duplicateGuides:
                     candidateGuides[row[0]]['header'] = CODE_AMBIGUOUS
                     candidateGuides[row[0]]['start'] = CODE_AMBIGUOUS
                     candidateGuides[row[0]]['end'] = CODE_AMBIGUOUS
