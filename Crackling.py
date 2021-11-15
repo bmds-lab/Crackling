@@ -130,6 +130,22 @@ def Crackling(configMngr):
             if doAssess:
                 yield target23
     
+    def processSeqeunce(seqeunce):
+        # Patterns for guide matching
+        pattern_forward = r"(?=([ATCG]{21}GG))"
+        pattern_reverse = r"(?=(CC[ACGT]{21}))"
+
+        # New sequence deteced, process seqeunce
+        # once for forward, once for reverse
+        for pattern, strand, seqModifier in [
+            [pattern_forward, '+', lambda x : x], 
+            [pattern_reverse, '-', lambda x : rc(x)]
+        ]:
+            p = re.compile(pattern)
+            for m in p.finditer(seqeunce):
+                target23 = seqModifier(seq[m.start() : m.start() + 23])
+                yield [target23, seqHeader,  m.start(),  m.start() + 23, strand, 1]
+
     ###################################
     ##   Processing the input file   ##
     ###################################
@@ -169,30 +185,6 @@ def Crackling(configMngr):
                     # this is (part of) the sequence; we write it without line break
                     parsedFile.write(line.strip())
 
-        # # We read and process the file without line breaks
-        # with open(parsedFile.name, 'r') as inFile:
-        #     previousHeader = seqFilePath
-        #     for line in inFile:
-        #         line = line.strip()
-        #         if line=="":
-        #             # some lines (e.g., first line in file) can be just a line break
-        #             continue
-        #         elif line[0] == '>':
-        #             # this is the header line for a new sequence
-        #             seqsByHeader[line[1:]] = ""
-        #             previousHeader = line[1:]
-        #             continue
-        #         else:
-        #             if previousHeader not in seqsByHeader:
-        #                 # it could be a plain text file, without a header
-        #                 seqsByHeader[previousHeader] = ""
-        #             # we save the sequence
-        #             seqsByHeader[previousHeader] += line.strip()
-
-        # Patterns for guide matching
-        pattern_forward = r"(?=([ATCG]{21}GG))"
-        pattern_reverse = r"(?=(CC[ACGT]{21}))"
-
         # Create a list to track temp files
         tempGuideFiles = []
         # Page size variable (TO DO: Add this option to config)
@@ -222,90 +214,79 @@ def Crackling(configMngr):
                     # some lines (e.g., first line in file) can be just a line break
                     continue
                 elif line[0] == '>':
-                    if seqHeader != '' and seq != '' and seqHeader not in recordedSeqeunces:
+                    # If we haven't seen the seqeunce OR we have found a sequence without header
+                    if (seqHeader not in recordedSeqeunces) or (seqHeader == '' and seq != ''): 
+                        # Record header
                         recordedSeqeunces.add(seqHeader)
-                        # New sequence deteced, process seqeunce
-                        # once for forward, once for reverse
-                        for pattern, strand, seqModifier in [
-                            [pattern_forward, '+', lambda x : x], 
-                            [pattern_reverse, '-', lambda x : rc(x)]
-                        ]:
-                            p = re.compile(pattern)
-                            for m in p.finditer(seq):
-                                target23 = seqModifier(seq[m.start() : m.start() + 23])
-                                if encodeString(target23) not in candidateGuides:
-                                    # Increase guide count
-                                    guideCount += 1
-                                    # If page size is exceeded open new page
-                                    if guideCount > guidePageSize:
-                                        # Close old file
-                                        guideTempFile.close()
-                                        # Create new temp file
-                                        guideTempFile = tempfile.NamedTemporaryFile(
-                                            mode = 'w', 
-                                            delete = False,
-                                            dir = preProcTempDir.name
-                                        )
-                                        # Record temp file name
-                                        tempGuideFiles.append(guideTempFile.name)
-                                        # Create csv writer for temp file
-                                        csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
-                                                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
-                                        # Reset guide count
-                                        guideCount = 1
-                                    # Record guide
-                                    candidateGuides.add(encodeString(target23))
-                                    # Record candidate guide to temp file
-                                    csvWriter.writerow([target23, seqHeader,  m.start(),  m.start() + 23, strand, 1])
-                                else:
-                                    # we've already seen this guide, make the positioning ambiguous
-                                    duplicateGuides.add(encodeString(target23))
-                                    duplicateGuidesCount += 1
-                    # this is the header line for a new sequence
-                    seqHeader = line[1:]
-                    seq = ''
+                        # Process the seqeunce
+                        for guide in processSeqeunce(seq):
+                            # Check if guide has been seen before
+                            if guide[0] not in candidateGuides:
+                                # Increase guide count
+                                guideCount += 1
+                                # If page size is exceeded open new page
+                                if guideCount > guidePageSize:
+                                    # Close old file
+                                    guideTempFile.close()
+                                    # Create new temp file
+                                    guideTempFile = tempfile.NamedTemporaryFile(
+                                        mode = 'w', 
+                                        delete = False,
+                                        dir = preProcTempDir.name
+                                    )
+                                    # Record temp file name
+                                    tempGuideFiles.append(guideTempFile.name)
+                                    # Create csv writer for temp file
+                                    csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
+                                                    quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+                                    # Reset guide count
+                                    guideCount = 1
+                                # Record guide
+                                candidateGuides.add(guide[0])
+                                # Record candidate guide to temp file
+                                csvWriter.writerow(guide)
+                            else:
+                                # we've already seen this guide, make the positioning ambiguous
+                                duplicateGuides.add(guide[0])
+                                duplicateGuidesCount += 1
                 else:
                     seq += line.strip()
 
-        if seqHeader != '' and seq != '' and seqHeader not in recordedSeqeunces:
+        # If we haven't seen the seqeunce OR we have found a sequence without header
+        if (seqHeader not in recordedSeqeunces) or (seqHeader == '' and seq != ''): 
+            # Record header
             recordedSeqeunces.add(seqHeader)
-            # New sequence deteced, process seqeunce
-            # once for forward, once for reverse
-            for pattern, strand, seqModifier in [
-                [pattern_forward, '+', lambda x : x], 
-                [pattern_reverse, '-', lambda x : rc(x)]
-            ]:
-                p = re.compile(pattern)
-                for m in p.finditer(seq):
-                    target23 = seqModifier(seq[m.start() : m.start() + 23])
-                    if encodeString(target23) not in candidateGuides:
-                        # Increase guide count
-                        guideCount += 1
-                        # If page size is exceeded open new page
-                        if guideCount > guidePageSize:
-                            # Close old file
-                            guideTempFile.close()
-                            # Create new temp file
-                            guideTempFile = tempfile.NamedTemporaryFile(
-                                mode = 'w', 
-                                delete = False,
-                                dir = preProcTempDir.name
-                            )
-                            # Record temp file name
-                            tempGuideFiles.append(guideTempFile.name)
-                            # Create csv writer for temp file
-                            csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
-                                            quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
-                            # Reset guide count
-                            guideCount = 1
-                        # Record guide
-                        candidateGuides.add(encodeString(target23))
-                        # Record candidate guide to temp file
-                        csvWriter.writerow([target23, seqHeader,  m.start(),  m.start() + 23, strand, 1])
-                    else:
-                        # we've already seen this guide, make the positioning ambiguous
-                        duplicateGuides.add(encodeString(target23))
-                        duplicateGuidesCount += 1
+            # Process the seqeunce
+            for guide in processSeqeunce(seq):
+                # Check if guide has been seen before
+                if guide[0] not in candidateGuides:
+                    # Increase guide count
+                    guideCount += 1
+                    # If page size is exceeded open new page
+                    if guideCount > guidePageSize:
+                        # Close old file
+                        guideTempFile.close()
+                        # Create new temp file
+                        guideTempFile = tempfile.NamedTemporaryFile(
+                            mode = 'w', 
+                            delete = False,
+                            dir = preProcTempDir.name
+                        )
+                        # Record temp file name
+                        tempGuideFiles.append(guideTempFile.name)
+                        # Create csv writer for temp file
+                        csvWriter = csv.writer(guideTempFile, delimiter=configMngr['output']['delimiter'],
+                                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+                        # Reset guide count
+                        guideCount = 1
+                    # Record guide
+                    candidateGuides.add(guide[0])
+                    # Record candidate guide to temp file
+                    csvWriter.writerow(guide)
+                else:
+                    # we've already seen this guide, make the positioning ambiguous
+                    duplicateGuides.add(guide[0])
+                    duplicateGuidesCount += 1
 
         guideTempFile.close()
 
