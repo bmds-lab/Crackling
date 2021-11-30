@@ -42,6 +42,7 @@ size_t seqLength, seqCount, sliceWidth, sliceCount, offtargetsCount, scoresCount
 vector<uint8_t> nucleotideIndex(256);
 vector<char> signatureIndex(4);
 
+/// Returns the size (bytes) of the file at `path`
 size_t getFileSize(const char *path)
 {
     struct stat64 statBuf;
@@ -49,6 +50,15 @@ size_t getFileSize(const char *path)
     return statBuf.st_size;
 }
 
+/**
+ * Binary encode genetic string `ptr`
+ *
+ * For example, 
+ *   ATCG becomes
+ *   00 11 01 10  (buffer with leading zeroes to encode as 64-bit unsigned int)
+ *
+ * @param[in] ptr the string containing ATCG to binary encode
+ */
 uint64_t sequenceToSignature(const char *ptr)
 {
     uint64_t signature = 0;
@@ -59,6 +69,15 @@ uint64_t sequenceToSignature(const char *ptr)
     return signature;
 }
 
+/**
+ * Binary encode genetic string `ptr`
+ *
+ * For example, 
+ *   00 11 01 10 becomes (as 64-bit unsigned int)
+ *    A  T  C  G  (without spaces)
+ *
+ * @param[in] signature the binary encoded genetic string
+ */
 string signatureToSequence(uint64_t signature)
 {
     string sequence = string(seqLength, ' ');
@@ -75,6 +94,7 @@ int main(int argc, char **argv)
         exit(1);
     }
     
+    /** Char to binary encoding */
     nucleotideIndex['A'] = 0;
     nucleotideIndex['C'] = 1;
     nucleotideIndex['G'] = 2;
@@ -83,31 +103,69 @@ int main(int argc, char **argv)
     signatureIndex[1] = 'C';
     signatureIndex[2] = 'G';
     signatureIndex[3] = 'T';
-    
+
+    /** The maximum number of mismatches */
     int maxDist = atoi(argv[3]);
+    
+    /** The threshold used to exit scoring early */
     double threshold = atof(argv[4]);
-    string scoreMethod = argv[5]; // cfd, mit, and, or, avg
+    
+    /** Scoring methods. To exit early: 
+     *      - only CFD must drop below `threshold`
+     *      - only MIT must drop below `threshold`
+     *      - both CFD and MIT must drop below `threshold`
+     *      - CFD or MIT must drop below `threshold`
+     *      - the average of CFD and MIT must below `threshold`
+     */
+    string scoreMethod = argv[5];
+    
+    /** Which scores should be calcled? */
     bool calcMit = (!scoreMethod.compare("mit") || !scoreMethod.compare("and") || !scoreMethod.compare("or") || !scoreMethod.compare("avg"));
     bool calcCfd = (!scoreMethod.compare("cfd") || !scoreMethod.compare("and") || !scoreMethod.compare("or") || !scoreMethod.compare("avg"));
 
+    /** Begin reading the binary encoded ISSL, structured as:
+     *      - a header (6 items)
+     *      - precalcuated local MIT scores
+     *      - all binary-encoded off-target sites
+     *      - slice list sizes
+     *      - slice contents
+     */
     FILE *fp = fopen(argv[1], "rb");
+    
+    /** The index contains a fixed-sized header 
+     *      - the number of off-targets in the index
+     *      - the length of an off-target
+     *      - 
+     *      - chars per slice
+     *      - the number of slices per sequence
+     *      - the number of precalculated MIT scores
+     */
     vector<size_t> slicelistHeader(6);
+    
     if (fread(slicelistHeader.data(), sizeof(size_t), slicelistHeader.size(), fp) == 0) {
         fprintf(stderr, "Error reading index: header invalid\n");
         return 1;
     }
     
-    offtargetsCount = slicelistHeader[0];
-    seqLength       = slicelistHeader[1];
-    seqCount        = slicelistHeader[2];
-    sliceWidth      = slicelistHeader[3];
-    sliceCount      = slicelistHeader[4];
-    scoresCount     = slicelistHeader[5];
+    offtargetsCount = slicelistHeader[0]; 
+    seqLength       = slicelistHeader[1]; 
+    seqCount        = slicelistHeader[2]; 
+    sliceWidth      = slicelistHeader[3]; 
+    sliceCount      = slicelistHeader[4]; 
+    scoresCount     = slicelistHeader[5]; 
     
+    /** The maximum number of possibly slice identities
+     *      4 chars per slice * each of A,T,C,G = limit of 16
+     */
     size_t sliceLimit = 1 << sliceWidth;
     
-    // read in the precalculated scores 
-    //map<uint64_t, double> precalculatedScores;
+    /** Read in the precalculated MIT scores 
+     *      - `mask` is a 2-bit encoding of mismatch positions
+     *          For example,
+     *              00 01 01 00 01  indicates mismatches in positions 1, 3 and 4
+     *  
+     *      - `score` is the local MIT score for this mismatch combination
+     */
     phmap::flat_hash_map<uint64_t, double> precalculatedScores;
 
     for (int i = 0; i < scoresCount; i++) {
@@ -119,47 +177,82 @@ int main(int argc, char **argv)
         precalculatedScores.insert(pair<uint64_t, double>(mask, score));
     }
     
-    // Load in all of the off-target sites
+    /** Load in all of the off-target sites */
     vector<uint64_t> offtargets(offtargetsCount);
     if (fread(offtargets.data(), sizeof(uint64_t), offtargetsCount, fp) == 0) {
         fprintf(stderr, "Error reading index: loading off-target sequences failed\n");
         return 1;
     }
-        
-    // Create enough 1-bit "seen" flags for the off-targets
-    // We only want to score a candidate guide against an off-target once.
-    // The least-significant bit represents the first off-target
-    // 0 0 0 1   0 1 0 0   would indicate that the 3rd and 5th off-target have been seen.
-    // The CHAR_BIT macro tells us how many bits are in a byte (C++ >= 8 bits per byte)
+    
+    /** Prevent assessing an off-target site for multiple slices
+     *
+     *      Create enough 1-bit "seen" flags for the off-targets
+     *      We only want to score a candidate guide against an off-target once.
+     *      The least-significant bit represents the first off-target
+     *      0 0 0 1   0 1 0 0   would indicate that the 3rd and 5th off-target have been seen.
+     *      The CHAR_BIT macro tells us how many bits are in a byte (C++ >= 8 bits per byte)
+     */
     uint64_t numOfftargetToggles = (offtargetsCount / ((size_t)sizeof(uint64_t) * (size_t)CHAR_BIT)) + 1;
 
-    
+    /** The number of signatures embedded per slice
+     *
+     *      These counts are stored contiguously
+     *
+     */
     vector<size_t> allSlicelistSizes(sliceCount * sliceLimit);
-    vector<uint64_t> allSignatures(seqCount * sliceCount);
     
     if (fread(allSlicelistSizes.data(), sizeof(size_t), allSlicelistSizes.size(), fp) == 0) {
         fprintf(stderr, "Error reading index: reading slice list sizes failed\n");
         return 1;
     }
     
+    /** The contents of the slices
+     *
+     *      Stored contiguously
+     *
+     *      Each signature (64-bit) is structured as:
+     *          <occurrences 32-bit><off-target-id 32-bit>
+     */
+    vector<uint64_t> allSignatures(seqCount * sliceCount);
+    
     if (fread(allSignatures.data(), sizeof(uint64_t), allSignatures.size(), fp) == 0) {
         fprintf(stderr, "Error reading index: reading slice contents failed\n");
         return 1;
     }
-    fclose(fp);
-    vector<vector<uint64_t *>> sliceLists(sliceCount, vector<uint64_t *>(sliceLimit));
     
-    {
-        uint64_t *offset = allSignatures.data();
-        for (size_t i = 0; i < sliceCount; i++) {
-            for (size_t j = 0; j < sliceLimit; j++) {
-                size_t idx = i * sliceLimit + j;
-                sliceLists[i][j] = offset;
-                offset += allSlicelistSizes[idx];
-            }
+    /** End reading the index */
+    fclose(fp);
+    
+    /** Start constructing index in memory
+     *
+     *      To begin, reverse the contiguous storage of the slices,
+     *         into the following:
+     *
+     *         + Slice 0 :
+     *         |---- AAAA : <slice contents>
+     *         |---- AAAC : <slice contents>
+     *         |----  ...
+     *         | 
+     *         + Slice 1 :
+     *         |---- AAAA : <slice contents>
+     *         |---- AAAC : <slice contents>
+     *         |---- ...
+     *         | ...
+     */
+    vector<vector<uint64_t *>> sliceLists(sliceCount, vector<uint64_t *>(sliceLimit));
+
+    uint64_t *offset = allSignatures.data();
+    for (size_t i = 0; i < sliceCount; i++) {
+        for (size_t j = 0; j < sliceLimit; j++) {
+            size_t idx = i * sliceLimit + j;
+            sliceLists[i][j] = offset;
+            offset += allSlicelistSizes[idx];
         }
     }
     
+    /** Load query file (candidate guides)
+     *      and prepare memory for calculated global scores
+     */
     size_t seqLineLength = seqLength + 1;
     size_t fileSize = getFileSize(argv[2]);
     if (fileSize % seqLineLength != 0) {
@@ -181,6 +274,7 @@ int main(int argc, char **argv)
     }
     fclose(fp);
 
+    /** Binary encode query sequences */
     #pragma omp parallel
     {
         #pragma omp for
@@ -191,6 +285,7 @@ int main(int argc, char **argv)
         }
     }
 
+    /** Begin scoring */
     #pragma omp parallel
     {
         unordered_map<uint64_t, unordered_set<uint64_t>> searchResults;
@@ -198,18 +293,21 @@ int main(int argc, char **argv)
     
         uint64_t * offtargetTogglesTail = offtargetToggles.data() + numOfftargetToggles - 1;
 
+        /** For each candidate guide */
         #pragma omp for
         for (size_t searchIdx = 0; searchIdx < querySignatures.size(); searchIdx++) {
 
             auto searchSignature = querySignatures[searchIdx];
 
+            /** Global scores */
             double totScoreMit = 0.0;
             double totScoreCfd = 0.0;
+            
             int numOffTargetSitesScored = 0;
-
             double maximum_sum = (10000.0 - threshold*100) / threshold;
             bool checkNextSlice = true;
             
+            /** For each ISSL slice */
             for (size_t i = 0; i < sliceCount; i++) {
                 uint64_t sliceMask = sliceLimit - 1;
                 int sliceShift = sliceWidth * i;
@@ -223,21 +321,49 @@ int main(int argc, char **argv)
                 size_t signaturesInSlice = allSlicelistSizes[idx];
                 uint64_t *sliceOffset = sliceList[searchSlice];
                 
+                /** For each off-target signature in slice */
                 for (size_t j = 0; j < signaturesInSlice; j++) {
+                    
                     auto signatureWithOccurrencesAndId = sliceOffset[j];
                     auto signatureId = signatureWithOccurrencesAndId & 0xFFFFFFFFull;
+                    uint32_t occurrences = (signatureWithOccurrencesAndId >> (32));
 
+                    /** Find the positions of mismatches 
+                     *
+                     *  Search signature (SS):    A  A  T  T    G  C  A  T
+                     *                           00 00 11 11   10 01 00 11
+                     *              
+                     *        Off-target (OT):    A  T  A  T    C  G  A  T
+                     *                           00 11 00 11   01 10 00 11
+                     *                           
+                     *                SS ^ OT:   00 00 11 11   10 01 00 11
+                     *                         ^ 00 11 00 11   01 10 00 11
+                     *                  (XORd) = 00 11 11 00   11 11 00 00
+                     *
+                     *        XORd & evenBits:   00 11 11 00   11 11 00 00
+                     *                         & 10 10 10 10   10 10 10 10
+                     *                   (eX)  = 00 10 10 00   10 10 00 00
+                     *
+                     *         XORd & oddBits:   00 11 11 00   11 11 00 00
+                     *                         & 01 01 01 01   01 01 01 01
+                     *                   (oX)  = 00 01 01 00   01 01 00 00
+                     *
+                     *         (eX >> 1) | oX:   00 01 01 00   01 01 00 00 (>>1)
+                     *                         | 00 01 01 00   01 01 00 00
+                     *            mismatches   = 00 01 01 00   01 01 00 00
+                     *
+                     *   popcount(mismatches):   4
+                     */
                     uint64_t xoredSignatures = searchSignature ^ offtargets[signatureId];
                     uint64_t evenBits = xoredSignatures & 0xAAAAAAAAAAAAAAAAull;
                     uint64_t oddBits = xoredSignatures & 0x5555555555555555ull;
                     uint64_t mismatches = (evenBits >> 1) | oddBits;
                     int dist = __builtin_popcountll(mismatches);
 
+                    /** Prevent assessing the same off-target for multiple slices */
                     uint64_t seenOfftargetAlready = 0;
                     uint64_t * ptrOfftargetFlag = (offtargetTogglesTail - (signatureId / 64));
-                  
                     seenOfftargetAlready = (*ptrOfftargetFlag >> (signatureId % 64)) & 1ULL;
-                    uint32_t occurrences = (signatureWithOccurrencesAndId >> (32));
                     
                     
                     if (!seenOfftargetAlready) {
@@ -245,22 +371,23 @@ int main(int argc, char **argv)
                         if (calcMit) {
                             if (dist > 0 && dist <= maxDist) {
                                 totScoreMit += precalculatedScores[mismatches] * (double)occurrences;
-	   
-                                if (totScoreMit > maximum_sum) {
-                                    checkNextSlice = false;
-                                    break;
-                                }
                             }
-                            
                         } 
                         
                         // Begin calculating CFD score
                         if (calcCfd) {
-                            double cfdScore = cfdPamPenalties[0b1010]; // PAM: NGG, TODO: do not hard-code the PAM
-                            if (dist == 1) {
-                                totScoreCfd = 1.0;
+                            /** "In other words, for the CFD score, a value of 0 
+                             *      indicates no predicted off-target activity whereas 
+                             *      a value of 1 indicates a perfect match"
+                             *      John Doench, 2016. 
+                             *      https://www.nature.com/articles/nbt.3437
+                            */
+                            double cfdScore = 0;
+                            if (dist == 0) {
+                                cfdScore = 1;
                             }
-                            else if (dist <= maxDist) {
+                            else if (dist > 0 && dist <= maxDist) {
+                                cfdScore = cfdPamPenalties[0b1010]; // PAM: NGG, TODO: do not hard-code the PAM
                                 
                                 for (size_t pos = 0; pos < 20; pos++) {
                                     size_t mask = pos << 4;
@@ -304,20 +431,45 @@ int main(int argc, char **argv)
                                     if (searchSigIdentityPos >> 2 != offtargetIdentityPos) {
                                         cfdScore *= cfdPosPenalties[mask];
                                     }
-                                    
                                 }
                             }
-                            totScoreCfd += cfdScore;
-                            if (totScoreCfd > maximum_sum) {
-                                checkNextSlice = false;
-                                break;
-                            }
-
+                            totScoreCfd += cfdScore * (double)occurrences;
                         }
                 
                         *ptrOfftargetFlag |= (1ULL << (signatureId % 64));
                         numOffTargetSitesScored += occurrences;
-	   
+
+                        /** Stop calculating global score early if possible */
+                        if (!scoreMethod.compare("and")) {
+                            if (totScoreMit > maximum_sum && totScoreCfd > maximum_sum) {
+                                checkNextSlice = false;
+                                break;
+                            }
+                        }
+                        if (!scoreMethod.compare("or")) {
+                            if (totScoreMit > maximum_sum || totScoreCfd > maximum_sum) {
+                                checkNextSlice = false;
+                                break;
+                            }
+                        }
+                        if (!scoreMethod.compare("avg")) {
+                            if (((totScoreMit + totScoreCfd) / 2.0) > maximum_sum) {
+                                checkNextSlice = false;
+                                break;
+                            }
+                        }
+                        if (!scoreMethod.compare("mit")) {
+                            if (totScoreMit > maximum_sum) {
+                                checkNextSlice = false;
+                                break;
+                            }
+                        }
+                        if (!scoreMethod.compare("cfd")) {
+                            if (totScoreCfd > maximum_sum) {
+                                checkNextSlice = false;
+                                break;
+                            }
+                        }
                     }
                 }
 
@@ -330,9 +482,10 @@ int main(int argc, char **argv)
 
             memset(offtargetToggles.data(), 0, sizeof(uint64_t)*offtargetToggles.size());
         }
-		
+
     }
     
+    /** Print global scores to stdout */
     for (size_t searchIdx = 0; searchIdx < querySignatures.size(); searchIdx++) {
         auto querySequence = signatureToSequence(querySignatures[searchIdx]);
         printf("%s\t", querySequence.c_str());
