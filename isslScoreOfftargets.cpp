@@ -365,112 +365,113 @@ int main(int argc, char **argv)
                     uint64_t * ptrOfftargetFlag = (offtargetTogglesTail - (signatureId / 64));
                     seenOfftargetAlready = (*ptrOfftargetFlag >> (signatureId % 64)) & 1ULL;
                     
-                    
-                    if (!seenOfftargetAlready) {
-                        // Begin calculating MIT score
-                        if (calcMit) {
-                            if (dist > 0 && dist <= maxDist) {
-                                totScoreMit += precalculatedScores[mismatches] * (double)occurrences;
-                            }
-                        } 
-                        
-                        // Begin calculating CFD score
-                        if (calcCfd) {
-                            /** "In other words, for the CFD score, a value of 0 
-                             *      indicates no predicted off-target activity whereas 
-                             *      a value of 1 indicates a perfect match"
-                             *      John Doench, 2016. 
-                             *      https://www.nature.com/articles/nbt.3437
-                            */
-                            double cfdScore = 0;
-                            if (dist == 0) {
-                                cfdScore = 1;
-                            }
-                            else if (dist > 0 && dist <= maxDist) {
-                                cfdScore = cfdPamPenalties[0b1010]; // PAM: NGG, TODO: do not hard-code the PAM
-                                
-                                for (size_t pos = 0; pos < 20; pos++) {
-                                    size_t mask = pos << 4;
-                                    
-                                    // Create the mask to look up the position-identity score
-                                    // In Python... c2b is char to bit
-                                    //  mask = pos << 4
-                                    //  mask |= c2b[sgRNA[pos]] << 2
-                                    //  mask |= c2b[revcom(offTaret[pos])]
-                                    
-                                    // Find identity at `pos` for search signature
-                                    // example: find identity in pos=2
-                                    //  Recall ISSL is inverted, hence:
-                                    //              3'-  T  G  C  C  G  A -5'
-                                    //  start           11 10 01 01 10 00   
-                                    //  3UL << pos*2    00 00 00 11 00 00 
-                                    //  and             00 00 00 01 00 00
-                                    //  shift           00 00 00 00 01 00
-                                    uint64_t searchSigIdentityPos = searchSignature;
-                                    searchSigIdentityPos &= (3UL << (pos * 2));
-                                    searchSigIdentityPos = searchSigIdentityPos >> (pos * 2); 
-                                    searchSigIdentityPos = searchSigIdentityPos << 2;
+					if (dist >= 0 && dist <= maxDist) {
+						if (!seenOfftargetAlready) {
+							// Begin calculating MIT score
+							if (calcMit) {
+								if (dist > 0 && dist <= maxDist) {
+									totScoreMit += precalculatedScores[mismatches] * (double)occurrences;
+								}
+							} 
+							
+							// Begin calculating CFD score
+							if (calcCfd) {
+								/** "In other words, for the CFD score, a value of 0 
+								 *      indicates no predicted off-target activity whereas 
+								 *      a value of 1 indicates a perfect match"
+								 *      John Doench, 2016. 
+								 *      https://www.nature.com/articles/nbt.3437
+								*/
+								double cfdScore = 0;
+								if (dist == 0) {
+									cfdScore = 1;
+								}
+								else if (dist > 0 && dist <= maxDist) {
+									cfdScore = cfdPamPenalties[0b1010]; // PAM: NGG, TODO: do not hard-code the PAM
+									
+									for (size_t pos = 0; pos < 20; pos++) {
+										size_t mask = pos << 4;
+										
+										// Create the mask to look up the position-identity score
+										// In Python... c2b is char to bit
+										//  mask = pos << 4
+										//  mask |= c2b[sgRNA[pos]] << 2
+										//  mask |= c2b[revcom(offTaret[pos])]
+										
+										// Find identity at `pos` for search signature
+										// example: find identity in pos=2
+										//  Recall ISSL is inverted, hence:
+										//              3'-  T  G  C  C  G  A -5'
+										//  start           11 10 01 01 10 00   
+										//  3UL << pos*2    00 00 00 11 00 00 
+										//  and             00 00 00 01 00 00
+										//  shift           00 00 00 00 01 00
+										uint64_t searchSigIdentityPos = searchSignature;
+										searchSigIdentityPos &= (3UL << (pos * 2));
+										searchSigIdentityPos = searchSigIdentityPos >> (pos * 2); 
+										searchSigIdentityPos = searchSigIdentityPos << 2;
 
-                                    // Find identity at `pos` for offtarget
-                                    // example: find identity in pos=2
-                                    //  Recall ISSL is inverted, hence:
-                                    //              3'-  T  G  C  C  G  A -5'
-                                    //  start           11 10 01 01 10 00   
-                                    //  3UL<<pos*2      00 00 00 11 00 00 
-                                    //  and             00 00 00 01 00 00
-                                    //  shift           00 00 00 00 00 01
-                                    //  rev comp 3UL    00 00 00 00 00 10 (done below)
-                                    uint64_t offtargetIdentityPos = offtargets[signatureId];
-                                    offtargetIdentityPos &= (3UL << (pos * 2));
-                                    offtargetIdentityPos = offtargetIdentityPos >> (pos * 2); 
+										// Find identity at `pos` for offtarget
+										// example: find identity in pos=2
+										//  Recall ISSL is inverted, hence:
+										//              3'-  T  G  C  C  G  A -5'
+										//  start           11 10 01 01 10 00   
+										//  3UL<<pos*2      00 00 00 11 00 00 
+										//  and             00 00 00 01 00 00
+										//  shift           00 00 00 00 00 01
+										//  rev comp 3UL    00 00 00 00 00 10 (done below)
+										uint64_t offtargetIdentityPos = offtargets[signatureId];
+										offtargetIdentityPos &= (3UL << (pos * 2));
+										offtargetIdentityPos = offtargetIdentityPos >> (pos * 2); 
 
-                                    // Complete the mask
-                                    // reverse complement (^3UL) `offtargetIdentityPos` here
-                                    mask = (mask | searchSigIdentityPos | (offtargetIdentityPos ^ 3UL));
+										// Complete the mask
+										// reverse complement (^3UL) `offtargetIdentityPos` here
+										mask = (mask | searchSigIdentityPos | (offtargetIdentityPos ^ 3UL));
 
-                                    if (searchSigIdentityPos >> 2 != offtargetIdentityPos) {
-                                        cfdScore *= cfdPosPenalties[mask];
-                                    }
-                                }
-                            }
-                            totScoreCfd += cfdScore * (double)occurrences;
-                        }
-                
-                        *ptrOfftargetFlag |= (1ULL << (signatureId % 64));
-                        numOffTargetSitesScored += occurrences;
+										if (searchSigIdentityPos >> 2 != offtargetIdentityPos) {
+											cfdScore *= cfdPosPenalties[mask];
+										}
+									}
+								}
+								totScoreCfd += cfdScore * (double)occurrences;
+							}
+					
+							*ptrOfftargetFlag |= (1ULL << (signatureId % 64));
+							numOffTargetSitesScored += occurrences;
 
-                        /** Stop calculating global score early if possible */
-                        if (!scoreMethod.compare("and")) {
-                            if (totScoreMit > maximum_sum && totScoreCfd > maximum_sum) {
-                                checkNextSlice = false;
-                                break;
-                            }
-                        }
-                        if (!scoreMethod.compare("or")) {
-                            if (totScoreMit > maximum_sum || totScoreCfd > maximum_sum) {
-                                checkNextSlice = false;
-                                break;
-                            }
-                        }
-                        if (!scoreMethod.compare("avg")) {
-                            if (((totScoreMit + totScoreCfd) / 2.0) > maximum_sum) {
-                                checkNextSlice = false;
-                                break;
-                            }
-                        }
-                        if (!scoreMethod.compare("mit")) {
-                            if (totScoreMit > maximum_sum) {
-                                checkNextSlice = false;
-                                break;
-                            }
-                        }
-                        if (!scoreMethod.compare("cfd")) {
-                            if (totScoreCfd > maximum_sum) {
-                                checkNextSlice = false;
-                                break;
-                            }
-                        }
-                    }
+							/** Stop calculating global score early if possible */
+							if (!scoreMethod.compare("and")) {
+								if (totScoreMit > maximum_sum && totScoreCfd > maximum_sum) {
+									checkNextSlice = false;
+									break;
+								}
+							}
+							if (!scoreMethod.compare("or")) {
+								if (totScoreMit > maximum_sum || totScoreCfd > maximum_sum) {
+									checkNextSlice = false;
+									break;
+								}
+							}
+							if (!scoreMethod.compare("avg")) {
+								if (((totScoreMit + totScoreCfd) / 2.0) > maximum_sum) {
+									checkNextSlice = false;
+									break;
+								}
+							}
+							if (!scoreMethod.compare("mit")) {
+								if (totScoreMit > maximum_sum) {
+									checkNextSlice = false;
+									break;
+								}
+							}
+							if (!scoreMethod.compare("cfd")) {
+								if (totScoreCfd > maximum_sum) {
+									checkNextSlice = false;
+									break;
+								}
+							}
+						}
+					}
                 }
 
                 if (!checkNextSlice)
