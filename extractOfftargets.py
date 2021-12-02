@@ -35,6 +35,44 @@ SORT_PAGE_SIZE = 500
 # Default: os.cpu_count()
 PROCESSES_COUNT = os.cpu_count()
 
+def explodeMultiFastaFile(fpInput, fpOutputTempDir):
+    newFilesPaths = []
+
+    with open(fpInput, 'r') as fRead:
+        fWrite = None
+
+        for line in fRead:
+            line = line.strip()
+            
+            # just found a new fasta segment. open a new file
+            if line[0] == '>':
+                fpTemp = tempfile.NamedTemporaryFile(
+                    mode = 'w+', 
+                    delete = False,
+                    dir = fpOutputTempDir
+                )
+                
+                # close the current file if necessary
+                if fWrite is not None:
+                    fWrite.write('\n')
+                    fWrite.close()
+                    
+                # open a new one
+                fWrite = open(fpTemp.name, 'w+')
+                newFilesPaths.append(fpTemp.name)
+                
+                fWrite.write(line)
+                fWrite.write('\n')
+
+            if line[0] != '>':
+                fWrite.write(line.upper().strip())
+        
+        # close the last file if necessary
+        if fWrite is not None:
+            fWrite.close()
+            
+    return newFilesPaths
+
 def processingNode(fpInputs, fpOutputTempDir = None):
     # Create a temporary file
     fpTemp = tempfile.NamedTemporaryFile(
@@ -61,7 +99,6 @@ def processingNode(fpInputs, fpOutputTempDir = None):
                         if header not in seqsByHeader:
                             # it could be a plain text file, without a header
                             seqsByHeader[header] = []
-                       
                         seqsByHeader[header].append(line.rstrip().upper())
 
             # For each FASTA sequence
@@ -103,8 +140,6 @@ def sortingNode(fileToSort, sortedTempDir):
             sortedFile.writelines(page)
             # Close sorted file
             sortedFile.close()
-
-
 
 def paginatedSort(filesToSort, fpOutput, mpPool): 
     # Create temp file directory
