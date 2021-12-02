@@ -50,12 +50,12 @@ def Crackling(configMngr):
         
             if optimisation == 'low':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seqCount'] > 1):
+                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
                     doAssess = False
                 
             if optimisation == 'medium':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seqCount'] > 1):
+                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
                     doAssess = False
             
                 # For mm10db:
@@ -88,7 +88,7 @@ def Crackling(configMngr):
                 
             if optimisation == 'high':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seqCount'] > 1):
+                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
                     doAssess = False
                     
                 # For mm10db:
@@ -145,20 +145,23 @@ def Crackling(configMngr):
             p = re.compile(pattern)
             for m in p.finditer(sequence):
                 target23 = seqModifier(seq[m.start() : m.start() + 23])
-                yield [target23, seqHeader,  m.start(),  m.start() + 23, strand, 1]
+                yield [target23, seqHeader,  m.start(),  m.start() + 23, strand]
 
     ###################################
     ##   Processing the input file   ##
     ###################################
+
     printer('Analysing files...') 
     
+    # Sets to keep track of Guides and sequences seen before
     candidateGuides = set()
     duplicateGuides = set()
     recordedSequences = set()
 
-    duplicateGuidesCount = 0
-
     for seqFilePath in configMngr.getIterFilesToProcess():
+        # Run start time
+        start_time = time.time()
+
         printer('Identifying possible target sites in: {}'.format(
             seqFilePath
         ))
@@ -184,7 +187,7 @@ def Crackling(configMngr):
                     # this is (part of) the sequence; we write it without line break
                     parsedFile.write(line.strip())
 
-        guideBatchinator = Batchinator(5000000)
+        guideBatchinator = Batchinator(int(configMngr['input']['batch-size']))
 
         with open(parsedFile.name, 'r') as inFile:
             seqHeader = ''
@@ -212,8 +215,6 @@ def Crackling(configMngr):
                             else:
                                 # Record duplicate guide
                                 duplicateGuides.add(guide[0])
-                                # Increase duplicate guide count
-                                duplicateGuidesCount += 1
                     # Update sequence and sequence header 
                     seqHeader = line[1:]
                     seq = ''
@@ -233,23 +234,28 @@ def Crackling(configMngr):
                 else:
                     # Record duplicate guide
                     duplicateGuides.add(guide[0])
-                    # Increase duplicate guide count
-                    duplicateGuidesCount += 1
 
         printer(f'Identified {len(candidateGuides)} possible target sites.')
         
         printer(f'\t{len(duplicateGuides)} of {len(candidateGuides)} were seen more than once.')
-        printer(f'\t{duplicateGuidesCount} of {len(candidateGuides)} were seen more than once.')
+        
+        # Update total time
+        preprocessingTime = time.time() - start_time
+        totalRunTimeSec += preprocessingTime
 
-        # Write header line for output file
-        with open(configMngr['output']['file'], 'a+') as fOpen:
-            csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
-                            quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+    # Write header line for output file
+    with open(configMngr['output']['file'], 'a+') as fOpen:
+        csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
+                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
 
-            csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
+        csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
 
+    # Clean up unused variables
+    os.unlink(parsedFile.name)
     del candidateGuides
     del recordedSequences
+
+
 
     for batchFile in guideBatchinator:
         # Run start time
@@ -271,13 +277,12 @@ def Crackling(configMngr):
                     candidateGuides[row[0]]['start'] = CODE_AMBIGUOUS
                     candidateGuides[row[0]]['end'] = CODE_AMBIGUOUS
                     candidateGuides[row[0]]['strand'] = CODE_AMBIGUOUS
-                    candidateGuides[row[0]]['seqCount'] = 2
+                    candidateGuides[row[0]]['seenDuplicate'] = CODE_REJECTED
                 else:
                     candidateGuides[row[0]]['header'] = row[1]
                     candidateGuides[row[0]]['start'] = row[2]
                     candidateGuides[row[0]]['end'] = row[3]
                     candidateGuides[row[0]]['strand'] = row[4]
-                    candidateGuides[row[0]]['seqCount'] = int(row[5])
 
         ############################################
         ##     Removing targets with leading T    ##
@@ -722,7 +727,7 @@ def Crackling(configMngr):
                         fTargetsToScore.write(target+"\n")
                         testedCount += 1
                 
-                                # Convert line endings
+                # Convert line endings
                 runner(
                     "\"{}\" \"{}\" ".format(
                         'dos2unix',
@@ -804,7 +809,7 @@ def Crackling(configMngr):
         printer(f'{len(candidateGuides)} guides evaluated.')
 
         printer('Ran in {} (dd hh:mm:ss) or {} seconds'.format(
-            strftime("%d %H:%M:%S", gmtime((time.time() - start_time))), 
+            time.strftime("%d %H:%M:%S", time.gmtime((time.time() - start_time))), 
             (time.time() - start_time)
         ))
         
@@ -812,7 +817,7 @@ def Crackling(configMngr):
         totalRunTimeSec += lastRunTimeSec
     
     printer('Total run time (dd hh:mm:ss) {} or {} seconds'.format(
-        strftime("%d %H:%M:%S", gmtime(totalRunTimeSec)), 
+        time.strftime("%d %H:%M:%S", time.gmtime(totalRunTimeSec)), 
         totalRunTimeSec
     ))   
     
