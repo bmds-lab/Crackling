@@ -239,7 +239,6 @@ int main(int argc, char **argv)
 	int maxDist = seqLength * 2 / sliceWidth - 1;
 	size_t scoresCount = 0;
 	
-	#pragma omp parallel for
 	for (int i = 1; i <= maxDist; i++) {
 		vector<uint64_t> tempMasks;
 		tempMasks = computeMasksTwoBit(20, i);
