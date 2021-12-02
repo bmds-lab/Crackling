@@ -8,7 +8,6 @@ Config:
 '''
 
 import argparse, ast, csv, joblib, os, re, sys, time, tempfile, psutil
-from sklearn.svm import SVC
 
 from ConfigManager import ConfigManager
 from Paginator import Paginator
@@ -133,8 +132,8 @@ def Crackling(configMngr):
     
     def processSequence(sequence):
         # Patterns for guide matching
-        pattern_forward = r"(?=([ATCG]{21}GG))"
-        pattern_reverse = r"(?=(CC[ACGT]{21}))"
+        pattern_forward = r'(?=([ATCG]{21}GG))'
+        pattern_reverse = r'(?=(CC[ACGT]{21}))'
 
         # New sequence deteced, process sequence
         # once for forward, once for reverse
@@ -162,15 +161,10 @@ def Crackling(configMngr):
         # Run start time
         start_time = time.time()
 
-        printer('Identifying possible target sites in: {}'.format(
-            seqFilePath
-        ))
+        printer(f'Identifying possible target sites in: {seqFilePath}')
 
-        printer('{} of {} bytes processed ({}%)'.format(
-            completedSizeBytes,
-            totalSizeBytes,
-            round((float(completedSizeBytes) / float(totalSizeBytes) * 100.0), 3)
-        ))
+        completedPercent = round((float(completedSizeBytes) / float(totalSizeBytes) * 100.0), 3)
+        printer(f'{completedSizeBytes} of {totalSizeBytes} bytes processed ({completedPercent}%)')
 
         lastScaffoldSizeBytes = os.path.getsize(seqFilePath)
 
@@ -182,7 +176,7 @@ def Crackling(configMngr):
                 line = line.strip()
                 if line[0] == '>':
                     # this is the header line for a new sequence, so we break the previous line and write the header as a new line
-                    parsedFile.write("\n"+line+"\n")
+                    parsedFile.write('\n'+line+'\n')
                 else:
                     # this is (part of) the sequence; we write it without line break
                     parsedFile.write(line.strip())
@@ -196,7 +190,7 @@ def Crackling(configMngr):
                 # Remove garbage from line
                 line = line.strip()
                 # Some lines (e.g., first line in file) can be just a line break, move to next line
-                if line=="":
+                if line=='':
                     continue
                 # Header line, start of a new sequence
                 elif line[0]=='>':
@@ -336,7 +330,7 @@ def Crackling(configMngr):
             failedCount = 0
             testedCount = 0
             for target23 in filterCandidateGuides(candidateGuides, MODULE_MM10DB):
-                if "TTTT" in target23:
+                if 'TTTT' in target23:
                     candidateGuides[target23]['passedTTTT'] = CODE_REJECTED
                     failedCount += 1
                 else:
@@ -357,9 +351,9 @@ def Crackling(configMngr):
             # RNAFold is memory intensive for very large datasets.
             # We will paginate in order not to overflow memory.
 
-            guide = "GUUUUAGAGCUAGAAAUAGCAAGUUAAAAUAAGGCUAGUCCGUUAUCAACUUGAAAAAGUGGCACCGAGUCGGUGCUUUU"
-            pattern_RNAstructure = r".{28}\({4}\.{4}\){4}\.{3}\){4}.{21}\({4}\.{4}\){4}\({7}\.{3}\){7}\.{3}\s\((.+)\)"
-            pattern_RNAenergy = r"\s\((.+)\)"
+            guide = 'GUUUUAGAGCUAGAAAUAGCAAGUUAAAAUAAGGCUAGUCCGUUAUCAACUUGAAAAAGUGGCACCGAGUCGGUGCUUUU'
+            pattern_RNAstructure = r'.{28}\({4}\.{4}\){4}\.{3}\){4}.{21}\({4}\.{4}\){4}\({7}\.{3}\){7}\.{3}\s\((.+)\)'
+            pattern_RNAenergy = r'\s\((.+)\)'
 
             testedCount = 0
             failedCount = 0
@@ -383,24 +377,19 @@ def Crackling(configMngr):
                 guidesInPage = 0
                 with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
                     for target23 in pageCandidateGuides:
-                        fRnaInput.write(
-                            "G{}{}\n".format(
-                                target23[1:20], 
-                                guide
-                            )
-                        )
+                        fRnaInput.write(f'G{target23[1:20]}{guide}\n')
                         guidesInPage += 1
                         
                 printer(f'\t\t{guidesInPage} guides in this page.')
 
-                runner(
-                    "{} --noPS -j{} -i \"{}\" > \"{}\"".format(
+                runner('{} --noPS -j{} -i {} > {}'.format(
                         configMngr['rnafold']['binary'],
                         configMngr['rnafold']['threads'],
                         configMngr['rnafold']['input'],
                         configMngr['rnafold']['output']
                     ), 
-                    shell=True, check=True
+                    shell=True,
+                    check=True
                 )
 
                 printer('\t\tStarting to process the RNAfold results.')
@@ -427,7 +416,7 @@ def Crackling(configMngr):
                 for target23 in pageCandidateGuides:
                     key = target23[1:20]
                     if key not in RNAstructures:
-                        print(f"Could not find: {target23[0:20]}")
+                        print(f'Could not find: {target23[0:20]}')
                         notFoundCount += 1
                         continue
                     else:
@@ -435,14 +424,14 @@ def Crackling(configMngr):
                         L2 = RNAstructures[key][1]
                         target = RNAstructures[key][2]
 
-                    structure = L2.split(" ")[0]
-                    energy = L2.split(" ")[1][1:-1]
+                    structure = L2.split(' ')[0]
+                    energy = L2.split(' ')[1][1:-1]
                     
                     candidateGuides[target23]['ssL1'] = L1
                     candidateGuides[target23]['ssStructure'] = structure
                     candidateGuides[target23]['ssEnergy'] = energy
                     
-                    if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
+                    if transToDNA(target) != target23[0:20] and transToDNA('C'+target[1:]) != target23[0:20] and transToDNA('A'+target[1:]) != target23[0:20]:
                         candidateGuides[target23]['passedSecondaryStructure'] = CODE_ERROR
                         errorCount += 1
                         continue
@@ -613,31 +602,34 @@ def Crackling(configMngr):
                     for target23 in pageCandidateGuides:
                         testedCount += 1
                         similarTargets = [
-                            target23[0:20] + "AGG", 
-                            target23[0:20] + "CGG", 
-                            target23[0:20] + "GGG", 
-                            target23[0:20] + "TGG", 
-                            target23[0:20] + "AAG", 
-                            target23[0:20] + "CAG", 
-                            target23[0:20] + "GAG", 
-                            target23[0:20] + "TAG"
+                            target23[0:20] + 'AGG', 
+                            target23[0:20] + 'CGG', 
+                            target23[0:20] + 'GGG', 
+                            target23[0:20] + 'TGG', 
+                            target23[0:20] + 'AAG', 
+                            target23[0:20] + 'CAG', 
+                            target23[0:20] + 'GAG', 
+                            target23[0:20] + 'TAG'
                         ]
                         
                         for seq in similarTargets:
-                            fWriteBowtie.write(seq + "\n")
+                            fWriteBowtie.write(seq + '\n')
                             tempTargetDict_offset[seq] = target23
                             
                         guidesInPage += 1
 
                 printer(f'\t\t{guidesInPage} guides in this page.')
 
-                runner("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
-                    configMngr['bowtie2']['binary'],
-                    configMngr['input']['bowtie2-index'],
-                    configMngr['bowtie2']['threads'],
-                    configMngr['bowtie2']['input'],
-                    configMngr['bowtie2']['output'])
-                , shell=True, check=True)       
+                runner('{} -x {} -p {} --reorder --no-hd -t -r -U {} -S {}'.format(
+                        configMngr['bowtie2']['binary'],
+                        configMngr['input']['bowtie2-index'],
+                        configMngr['bowtie2']['threads'],
+                        configMngr['bowtie2']['input'],
+                        configMngr['bowtie2']['output']
+                    ),
+                    shell=True,
+                    check=True
+                )       
                 
                 printer('\tStarting to process the Bowtie results.')
                 
@@ -649,18 +641,18 @@ def Crackling(configMngr):
                 while i<len(bowtieLines):
                     nb_occurences = 0
                     # we extract the read and use the dictionary to find the corresponding target
-                    line = bowtieLines[i].rstrip().split("\t")
+                    line = bowtieLines[i].rstrip().split('\t')
                     chr = line[2]
                     pos = ast.literal_eval(line[3])
                     read = line[9]
-                    seq = ""
+                    seq = ''
                     
                     if read in tempTargetDict_offset:
                         seq = tempTargetDict_offset[read]
                     elif rc(read) in tempTargetDict_offset:
                         seq = tempTargetDict_offset[rc(read)]
                     else:
-                        print("Problem? "+read)
+                        print('Problem? '+read)
                 
                     if seq[:-2] == 'GG':
                         candidateGuides[seq]['bowtieChr'] = chr
@@ -671,7 +663,7 @@ def Crackling(configMngr):
                         candidateGuides[seq]['bowtieStart'] = pos
                         candidateGuides[seq]['bowtieEnd'] = pos + 22
                     else:
-                        print("Error? "+seq)
+                        print('Error? '+seq)
                         quit()  
                         
                     # we count how many of the eight reads for this target have a perfect alignment
@@ -681,11 +673,11 @@ def Crackling(configMngr):
                         # XM:i:<N>    The number of mismatches in the alignment. Only present if SAM record is for an aligned read.
                         # XS:i:<N>    Alignment score for the best-scoring alignment found other than the alignment reported.
                         
-                        if "XM:i:0" in bowtieLines[j]:
+                        if 'XM:i:0' in bowtieLines[j]:
                             nb_occurences += 1
                             
                             # we also check whether this perfect alignment also happens elsewhere
-                            if "XS:i:0"  in bowtieLines[j]:
+                            if 'XS:i:0'  in bowtieLines[j]:
                                 nb_occurences += 1
 
                     # if that number is at least two, the target is removed
@@ -724,21 +716,20 @@ def Crackling(configMngr):
                 with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
                     for target23 in pageCandidateGuides:
                         target = target23[0:20]
-                        fTargetsToScore.write(target+"\n")
+                        fTargetsToScore.write(target+'\n')
                         testedCount += 1
                 
-                # Convert line endings
-                runner(
-                    "\"{}\" \"{}\" ".format(
-                        'dos2unix',
-                        configMngr['offtargetscore']['input'],
-                    ),
-                    shell = True, check=True
-                )
+                # Convert line endings (Windows)
+                if os.name == 'nt':
+                    runner('dos2unix {}'.format(
+                            configMngr['offtargetscore']['input']
+                        ),
+                        shell=True,
+                        check=True
+                    )
                 
                 # call the scoring method
-                runner(
-                    "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
+                runner('{} {} {} {} {} > {}'.format(
                         configMngr['offtargetscore']['binary'],
                         configMngr['input']['offtarget-sites'],
                         configMngr['offtargetscore']['input'],
@@ -746,7 +737,8 @@ def Crackling(configMngr):
                         str(configMngr['offtargetscore']['score-threshold']),
                         configMngr['offtargetscore']['output'],
                     ),
-                    shell = True, check=True
+                    shell=True,
+                    check=True
                 )
                 
                 targetsScored = {}
@@ -809,7 +801,7 @@ def Crackling(configMngr):
         printer(f'{len(candidateGuides)} guides evaluated.')
 
         printer('Ran in {} (dd hh:mm:ss) or {} seconds'.format(
-            time.strftime("%d %H:%M:%S", time.gmtime((time.time() - start_time))), 
+            time.strftime('%d %H:%M:%S', time.gmtime((time.time() - start_time))), 
             (time.time() - start_time)
         ))
         
@@ -817,7 +809,7 @@ def Crackling(configMngr):
         totalRunTimeSec += lastRunTimeSec
     
     printer('Total run time (dd hh:mm:ss) {} or {} seconds'.format(
-        time.strftime("%d %H:%M:%S", time.gmtime(totalRunTimeSec)), 
+        time.strftime('%d %H:%M:%S', time.gmtime(totalRunTimeSec)), 
         totalRunTimeSec
     ))   
     
