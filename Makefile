@@ -7,21 +7,13 @@ CFLAGS = -O3 -std=c++11 -fopenmp -mpopcnt
 # define any directories containing header files other than /usr/include
 INCLUDES = -Iparallel_hashmap
 
-# define the source files
-SRC = isslScoreOfftargets.cpp isslCreateIndex.cpp
+all : isslScoreOfftargets isslCreateIndex
 
-# the build target executables:
-TARGET = isslScoreOfftargets isslCreateIndex
+isslScoreOfftargets : isslScoreOfftargets.cpp
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
-all:	$(TARGET)
-
-$(TARGET) : $(SRC) 
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(LFLAGS) $(LIBS)
+isslCreateIndex : isslCreateIndex.cpp
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 clean:
-	$(RM) $(TARGET)
-
-depend: $(SRC)
-	makedepend $(INCLUDES) $^
-
-# DO NOT DELETE THIS LINE -- make depend needs it
+	$(RM) isslScoreOfftargets isslCreateIndex
