@@ -13,7 +13,7 @@ MODULE_SPECIFICITY = 'specificity'
 DEFAULT_GUIDE_PROPERTIES = {
     'seq'                       : "",
     'header'                    : "",
-    'seqCount'                  : 1,
+    'seenDuplicate'             : CODE_ACCEPTED,
     'start'                     : CODE_UNTESTED,
     'end'                       : CODE_UNTESTED,
     'strand'                    : CODE_UNTESTED,
@@ -45,7 +45,7 @@ DEFAULT_GUIDE_PROPERTIES_ORDER = [
     'start',
     'end',
     'strand',
-    'seqCount',
+    'seenDuplicate',
     'passedG20',
     'passedTTTT',
     'passedATPercent',

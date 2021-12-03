@@ -7,11 +7,11 @@ Config:
     - See config.ini
 '''
 
-import argparse, ast, csv, joblib, os, re, sys, time
-from sklearn.svm import SVC
+import argparse, ast, csv, joblib, os, re, sys, time, tempfile, psutil
 
 from ConfigManager import ConfigManager
 from Paginator import Paginator
+from Batchinator import Batchinator
 from Constants import *
 from Helpers import * 
 
@@ -28,8 +28,6 @@ def Crackling(configMngr):
     lastRunTimeSec = 0
     lastScaffoldSizeBytes = 0
     totalRunTimeSec = 0
-    
-    start_time = time.time()
 
     ####################################
     ###     Run-time Optimisation     ##
@@ -51,12 +49,12 @@ def Crackling(configMngr):
         
             if optimisation == 'low':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seqCount'] > 1):
+                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
                     doAssess = False
                 
             if optimisation == 'medium':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seqCount'] > 1):
+                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
                     doAssess = False
             
                 # For mm10db:
@@ -89,7 +87,7 @@ def Crackling(configMngr):
                 
             if optimisation == 'high':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seqCount'] > 1):
+                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
                     doAssess = False
                     
                 # For mm10db:
@@ -132,85 +130,157 @@ def Crackling(configMngr):
             if doAssess:
                 yield target23
     
+    def processSequence(sequence):
+        # Patterns for guide matching
+        pattern_forward = r'(?=([ATCG]{21}GG))'
+        pattern_reverse = r'(?=(CC[ACGT]{21}))'
+
+        # New sequence deteced, process sequence
+        # once for forward, once for reverse
+        for pattern, strand, seqModifier in [
+            [pattern_forward, '+', lambda x : x], 
+            [pattern_reverse, '-', lambda x : rc(x)]
+        ]:
+            p = re.compile(pattern)
+            for m in p.finditer(sequence):
+                target23 = seqModifier(seq[m.start() : m.start() + 23])
+                yield [target23, seqHeader,  m.start(),  m.start() + 23, strand]
+
     ###################################
     ##   Processing the input file   ##
     ###################################
+
     printer('Analysing files...') 
     
-    numberOfDuplicateGuides = 0
-    
-    for seqFilePath in configMngr.getIterFilesToProcess():
-        printer('Identifying possible target sites in: {}'.format(
-            seqFilePath
-        ))
+    # Sets to keep track of Guides and sequences seen before
+    candidateGuides = set()
+    duplicateGuides = set()
+    recordedSequences = set()
 
-        printer('{} of {} bytes processed ({}%)'.format(
-            completedSizeBytes,
-            totalSizeBytes,
-            round((float(completedSizeBytes) / float(totalSizeBytes) * 100.0), 3)
-        ))
+    for seqFilePath in configMngr.getIterFilesToProcess():
+        # Run start time
+        start_time = time.time()
+
+        printer(f'Identifying possible target sites in: {seqFilePath}')
+
+        completedPercent = round((float(completedSizeBytes) / float(totalSizeBytes) * 100.0), 3)
+        printer(f'{completedSizeBytes} of {totalSizeBytes} bytes processed ({completedPercent}%)')
 
         lastScaffoldSizeBytes = os.path.getsize(seqFilePath)
 
         completedSizeBytes += lastScaffoldSizeBytes
 
-        # key: FASTA header, value: sequence
-        seqsByHeader = {}
-        
-        candidateGuides = {}
-        
-        # Read the file
-        with open(seqFilePath, 'r') as inFile:
-            seqLines = []
-            header = seqFilePath
+        # We first remove all the line breaks within a given sequence (FASTA format)
+        with open(seqFilePath, 'r') as inFile, tempfile.NamedTemporaryFile(mode='w',delete=False) as parsedFile:
             for line in inFile:
-                if line[0] == ">":
-                    if len(seqLines) != 0:
-                        seq = "".join(seqLines).replace(" ", "").replace("\r", "")
-                        if len(seq) > 0:
-                            seqsByHeader[header] = seq
-                    seqLines = []
-                    header = line.strip()
+                line = line.strip()
+                if line[0] == '>':
+                    # this is the header line for a new sequence, so we break the previous line and write the header as a new line
+                    parsedFile.write('\n'+line+'\n')
                 else:
-                    seqLines.append(line)
-            seqsByHeader[header] = "".join(seqLines).replace(" ", "").replace("\r", "")
-            
-        pattern_forward = r"(?=([ATCG]{21}GG))"
-        pattern_reverse = r"(?=(CC[ACGT]{21}))"
+                    # this is (part of) the sequence; we write it without line break
+                    parsedFile.write(line.strip())
 
-        for seqHeader in seqsByHeader:
-            seq = seqsByHeader[seqHeader]
-            
-            # once for forward, once for reverse
-            for pattern, strand, seqModifier in [
-                [pattern_forward, '+', lambda x : x], 
-                [pattern_reverse, '-', lambda x : rc(x)]
-            ]:
-                p = re.compile(pattern)
-                for m in p.finditer(seq):
-                    target23 = seqModifier(seq[m.start() : m.start() + 23])
-                    if target23 not in candidateGuides:
-                        candidateGuides[target23] = DEFAULT_GUIDE_PROPERTIES.copy()
-                        candidateGuides[target23]['seq'] = target23
-                        candidateGuides[target23]['header'] = seqHeader
-                        candidateGuides[target23]['start'] = m.start()
-                        candidateGuides[target23]['end'] = m.start() + 23
-                        candidateGuides[target23]['strand'] = strand
-                    else:
-                        # we've already seen this guide, make the positioning ambiguous
-                        candidateGuides[target23]['seqCount'] += 1
-                        candidateGuides[target23]['header'] = CODE_AMBIGUOUS
-                        candidateGuides[target23]['start'] = CODE_AMBIGUOUS
-                        candidateGuides[target23]['end'] = CODE_AMBIGUOUS
-                        candidateGuides[target23]['strand'] = CODE_AMBIGUOUS
-                        
-                        numberOfDuplicateGuides += 1
+        guideBatchinator = Batchinator(int(configMngr['input']['batch-size']))
 
-        del seqsByHeader
+        with open(parsedFile.name, 'r') as inFile:
+            seqHeader = ''
+            seq = ''
+            for line in inFile:
+                # Remove garbage from line
+                line = line.strip()
+                # Some lines (e.g., first line in file) can be just a line break, move to next line
+                if line=='':
+                    continue
+                # Header line, start of a new sequence
+                elif line[0]=='>':
+                    # If we haven't seen the sequence OR we have found a sequence without header
+                    if (seqHeader not in recordedSequences) or (seqHeader=='' and seq!=''): 
+                        # Record header
+                        recordedSequences.add(seqHeader)
+                        # Process the sequence
+                        for guide in processSequence(seq):
+                            # Check if guide has been seen before
+                            if guide[0] not in candidateGuides:
+                                # Record guide
+                                candidateGuides.add(guide[0])
+                                # Record candidate guide to temp file
+                                guideBatchinator.recordEntry(guide)
+                            else:
+                                # Record duplicate guide
+                                duplicateGuides.add(guide[0])
+                    # Update sequence and sequence header 
+                    seqHeader = line[1:]
+                    seq = ''
+                # Sequence line, section of existing sequence
+                else:
+                    # Append section to total sequence
+                    seq += line.strip()
+
+            # Process the last sequence
+            for guide in processSequence(seq):
+                # Check if guide has been seen before
+                if guide[0] not in candidateGuides:
+                    # Record guide
+                    candidateGuides.add(guide[0])
+                    # Record candidate guide to temp file
+                    guideBatchinator.recordEntry(guide)
+                else:
+                    # Record duplicate guide
+                    duplicateGuides.add(guide[0])
 
         printer(f'Identified {len(candidateGuides)} possible target sites.')
         
-        printer(f'\t{numberOfDuplicateGuides} of {len(candidateGuides)} were seen more than once.')
+        printer(f'\t{len(duplicateGuides)} of {len(candidateGuides)} were seen more than once.')
+        
+        # Update total time
+        preprocessingTime = time.time() - start_time
+        totalRunTimeSec += preprocessingTime
+
+    # Write header line for output file
+    with open(configMngr['output']['file'], 'a+') as fOpen:
+        csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
+                        quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+
+        csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
+
+    # Clean up unused variables
+    os.unlink(parsedFile.name)
+    del candidateGuides
+    del recordedSequences
+
+
+
+    for batchFile in guideBatchinator:
+        # Run start time
+        start_time = time.time()
+            
+        printer('Processing batch file...')
+
+        # Create new candidate guide dictionary
+        candidateGuides = {}
+        # Load guides from temp file
+        with open(batchFile, 'r') as inputFp:
+            # Create csv reader to parse temp file
+            csvReader = csv.reader(inputFp, delimiter=configMngr['output']['delimiter'],
+                quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
+            # Rebuild dictonary from temp file
+            for row in csvReader:
+                candidateGuides[row[0]] = DEFAULT_GUIDE_PROPERTIES.copy()
+                candidateGuides[row[0]]['seq'] = row[0]
+                if row[0] in duplicateGuides:
+                    candidateGuides[row[0]]['header'] = CODE_AMBIGUOUS
+                    candidateGuides[row[0]]['start'] = CODE_AMBIGUOUS
+                    candidateGuides[row[0]]['end'] = CODE_AMBIGUOUS
+                    candidateGuides[row[0]]['strand'] = CODE_AMBIGUOUS
+                    candidateGuides[row[0]]['seenDuplicate'] = CODE_REJECTED
+                else:
+                    candidateGuides[row[0]]['header'] = row[1]
+                    candidateGuides[row[0]]['start'] = row[2]
+                    candidateGuides[row[0]]['end'] = row[3]
+                    candidateGuides[row[0]]['strand'] = row[4]
+
+        printer(f'Loaded batch {guideBatchinator.currentBatch} of {len(guideBatchinator.batchFiles)}')
 
         ############################################
         ##     Removing targets with leading T    ##
@@ -264,12 +334,11 @@ def Crackling(configMngr):
             failedCount = 0
             testedCount = 0
             for target23 in filterCandidateGuides(candidateGuides, MODULE_MM10DB):
-                if "TTTT" in target23:
+                if 'TTTT' in target23:
                     candidateGuides[target23]['passedTTTT'] = CODE_REJECTED
                     failedCount += 1
                 else:
                     candidateGuides[target23]['passedTTTT'] = CODE_ACCEPTED
-               
                 testedCount += 1
                 
             printer(f'\t{failedCount} of {testedCount} failed here.')
@@ -280,16 +349,15 @@ def Crackling(configMngr):
         if (configMngr['consensus'].getboolean('mm10db')):
             printer('mm10db - check secondary structure.')
             
-            import psutil
             mem = psutil.virtual_memory()
             printer(f'There is {(mem.available/1024/1024)} megabytes of memory available.')
             
             # RNAFold is memory intensive for very large datasets.
             # We will paginate in order not to overflow memory.
 
-            guide = "GUUUUAGAGCUAGAAAUAGCAAGUUAAAAUAAGGCUAGUCCGUUAUCAACUUGAAAAAGUGGCACCGAGUCGGUGCUUUU"
-            pattern_RNAstructure = r".{28}\({4}\.{4}\){4}\.{3}\){4}.{21}\({4}\.{4}\){4}\({7}\.{3}\){7}\.{3}\s\((.+)\)"
-            pattern_RNAenergy = r"\s\((.+)\)"
+            guide = 'GUUUUAGAGCUAGAAAUAGCAAGUUAAAAUAAGGCUAGUCCGUUAUCAACUUGAAAAAGUGGCACCGAGUCGGUGCUUUU'
+            pattern_RNAstructure = r'.{28}\({4}\.{4}\){4}\.{3}\){4}.{21}\({4}\.{4}\){4}\({7}\.{3}\){7}\.{3}\s\((.+)\)'
+            pattern_RNAenergy = r'\s\((.+)\)'
 
             testedCount = 0
             failedCount = 0
@@ -313,24 +381,19 @@ def Crackling(configMngr):
                 guidesInPage = 0
                 with open(configMngr['rnafold']['input'], 'w+') as fRnaInput:
                     for target23 in pageCandidateGuides:
-                        fRnaInput.write(
-                            "G{}{}\n".format(
-                                target23[1:20], 
-                                guide
-                            )
-                        )
+                        fRnaInput.write(f'G{target23[1:20]}{guide}\n')
                         guidesInPage += 1
                         
                 printer(f'\t\t{guidesInPage} guides in this page.')
 
-                caller(
-                    "{} --noPS -j{} -i \"{}\" > \"{}\"".format(
+                runner('{} --noPS -j{} -i {} > {}'.format(
                         configMngr['rnafold']['binary'],
                         configMngr['rnafold']['threads'],
                         configMngr['rnafold']['input'],
                         configMngr['rnafold']['output']
                     ), 
-                    shell=True
+                    shell=True,
+                    check=True
                 )
 
                 printer('\t\tStarting to process the RNAfold results.')
@@ -357,7 +420,7 @@ def Crackling(configMngr):
                 for target23 in pageCandidateGuides:
                     key = target23[1:20]
                     if key not in RNAstructures:
-                        print(f"Could not find: {target23[0:20]}")
+                        print(f'Could not find: {target23[0:20]}')
                         notFoundCount += 1
                         continue
                     else:
@@ -365,14 +428,14 @@ def Crackling(configMngr):
                         L2 = RNAstructures[key][1]
                         target = RNAstructures[key][2]
 
-                    structure = L2.split(" ")[0]
-                    energy = L2.split(" ")[1][1:-1]
+                    structure = L2.split(' ')[0]
+                    energy = L2.split(' ')[1][1:-1]
                     
                     candidateGuides[target23]['ssL1'] = L1
                     candidateGuides[target23]['ssStructure'] = structure
                     candidateGuides[target23]['ssEnergy'] = energy
                     
-                    if transToDNA(target) != target23[0:20] and transToDNA("C"+target[1:]) != target23[0:20] and transToDNA("A"+target[1:]) != target23[0:20]:
+                    if transToDNA(target) != target23[0:20] and transToDNA('C'+target[1:]) != target23[0:20] and transToDNA('A'+target[1:]) != target23[0:20]:
                         candidateGuides[target23]['passedSecondaryStructure'] = CODE_ERROR
                         errorCount += 1
                         continue
@@ -432,7 +495,7 @@ def Crackling(configMngr):
             printer(f'\t{failedCount} failed.')
                 
             del acceptedCount
-                 
+
         #########################################
         ##         sgRNAScorer 2.0 model       ##
         ######################################### 
@@ -473,7 +536,7 @@ def Crackling(configMngr):
                     candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_ACCEPTED
                             
             printer(f'\t{failedCount} of {testedCount} failed here.')
-           
+
         #########################################
         ##                 G20                 ##
         #########################################
@@ -543,31 +606,34 @@ def Crackling(configMngr):
                     for target23 in pageCandidateGuides:
                         testedCount += 1
                         similarTargets = [
-                            target23[0:20] + "AGG", 
-                            target23[0:20] + "CGG", 
-                            target23[0:20] + "GGG", 
-                            target23[0:20] + "TGG", 
-                            target23[0:20] + "AAG", 
-                            target23[0:20] + "CAG", 
-                            target23[0:20] + "GAG", 
-                            target23[0:20] + "TAG"
+                            target23[0:20] + 'AGG', 
+                            target23[0:20] + 'CGG', 
+                            target23[0:20] + 'GGG', 
+                            target23[0:20] + 'TGG', 
+                            target23[0:20] + 'AAG', 
+                            target23[0:20] + 'CAG', 
+                            target23[0:20] + 'GAG', 
+                            target23[0:20] + 'TAG'
                         ]
                         
                         for seq in similarTargets:
-                            fWriteBowtie.write(seq + "\n")
+                            fWriteBowtie.write(seq + '\n')
                             tempTargetDict_offset[seq] = target23
                             
                         guidesInPage += 1
 
                 printer(f'\t\t{guidesInPage} guides in this page.')
 
-                caller("{} -x {} -p {} --reorder --no-hd -t -r -U \"{}\" -S \"{}\"".format(
-                    configMngr['bowtie2']['binary'],
-                    configMngr['input']['bowtie2-index'],
-                    configMngr['bowtie2']['threads'],
-                    configMngr['bowtie2']['input'],
-                    configMngr['bowtie2']['output'])
-                , shell=True)       
+                runner('{} -x {} -p {} --reorder --no-hd -t -r -U {} -S {}'.format(
+                        configMngr['bowtie2']['binary'],
+                        configMngr['input']['bowtie2-index'],
+                        configMngr['bowtie2']['threads'],
+                        configMngr['bowtie2']['input'],
+                        configMngr['bowtie2']['output']
+                    ),
+                    shell=True,
+                    check=True
+                )       
                 
                 printer('\tStarting to process the Bowtie results.')
                 
@@ -579,18 +645,18 @@ def Crackling(configMngr):
                 while i<len(bowtieLines):
                     nb_occurences = 0
                     # we extract the read and use the dictionary to find the corresponding target
-                    line = bowtieLines[i].rstrip().split("\t")
+                    line = bowtieLines[i].rstrip().split('\t')
                     chr = line[2]
                     pos = ast.literal_eval(line[3])
                     read = line[9]
-                    seq = ""
+                    seq = ''
                     
                     if read in tempTargetDict_offset:
                         seq = tempTargetDict_offset[read]
                     elif rc(read) in tempTargetDict_offset:
                         seq = tempTargetDict_offset[rc(read)]
                     else:
-                        print("Problem? "+read)
+                        print('Problem? '+read)
                 
                     if seq[:-2] == 'GG':
                         candidateGuides[seq]['bowtieChr'] = chr
@@ -601,7 +667,7 @@ def Crackling(configMngr):
                         candidateGuides[seq]['bowtieStart'] = pos
                         candidateGuides[seq]['bowtieEnd'] = pos + 22
                     else:
-                        print("Error? "+seq)
+                        print('Error? '+seq)
                         quit()  
                         
                     # we count how many of the eight reads for this target have a perfect alignment
@@ -611,11 +677,11 @@ def Crackling(configMngr):
                         # XM:i:<N>    The number of mismatches in the alignment. Only present if SAM record is for an aligned read.
                         # XS:i:<N>    Alignment score for the best-scoring alignment found other than the alignment reported.
                         
-                        if "XM:i:0" in bowtieLines[j]:
+                        if 'XM:i:0' in bowtieLines[j]:
                             nb_occurences += 1
                             
                             # we also check whether this perfect alignment also happens elsewhere
-                            if "XS:i:0"  in bowtieLines[j]:
+                            if 'XS:i:0'  in bowtieLines[j]:
                                 nb_occurences += 1
 
                     # if that number is at least two, the target is removed
@@ -654,12 +720,20 @@ def Crackling(configMngr):
                 with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
                     for target23 in pageCandidateGuides:
                         target = target23[0:20]
-                        fTargetsToScore.write(target+"\n")
+                        fTargetsToScore.write(target+'\n')
                         testedCount += 1
                 
+                # Convert line endings (Windows)
+                if os.name == 'nt':
+                    runner('dos2unix {}'.format(
+                            configMngr['offtargetscore']['input']
+                        ),
+                        shell=True,
+                        check=True
+                    )
+                
                 # call the scoring method
-                caller(
-                    ["{} \"{}\" \"{}\" \"{}\" \"{}\" \"{}\" > \"{}\"".format(
+                runner('{} {} {} {} {} > {}'.format(
                         configMngr['offtargetscore']['binary'],
                         configMngr['input']['offtarget-sites'],
                         configMngr['offtargetscore']['input'],
@@ -667,8 +741,9 @@ def Crackling(configMngr):
                         str(configMngr['offtargetscore']['score-threshold']),
                         str(configMngr['offtargetscore']['method']),
                         configMngr['offtargetscore']['output'],
-                    )],
-                    shell = True
+                    ),
+                    shell=True,
+                    check=True
                 )
                 
                 targetsScored = {}
@@ -699,9 +774,7 @@ def Crackling(configMngr):
         # Write guides to file. Include scores etc.
         with open(configMngr['output']['file'], 'a+') as fOpen:
             csvWriter = csv.writer(fOpen, delimiter=configMngr['output']['delimiter'],
-                            quotechar='"', quoting=csv.QUOTE_MINIMAL)
-                         
-            csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
+                            quotechar='"',dialect='unix', quoting=csv.QUOTE_MINIMAL)
             
             for target23 in candidateGuides:
                 output = [candidateGuides[target23][x] for x in DEFAULT_GUIDE_PROPERTIES_ORDER]
@@ -733,7 +806,7 @@ def Crackling(configMngr):
         printer(f'{len(candidateGuides)} guides evaluated.')
 
         printer('Ran in {} (dd hh:mm:ss) or {} seconds'.format(
-            strftime("%d %H:%M:%S", gmtime((time.time() - start_time))), 
+            time.strftime('%d %H:%M:%S', time.gmtime((time.time() - start_time))), 
             (time.time() - start_time)
         ))
         
@@ -741,7 +814,7 @@ def Crackling(configMngr):
         totalRunTimeSec += lastRunTimeSec
     
     printer('Total run time (dd hh:mm:ss) {} or {} seconds'.format(
-        strftime("%d %H:%M:%S", gmtime(totalRunTimeSec)), 
+        time.strftime('%d %H:%M:%S', time.gmtime(totalRunTimeSec)), 
         totalRunTimeSec
     ))   
     
