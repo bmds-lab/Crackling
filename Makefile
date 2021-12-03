@@ -5,15 +5,15 @@ CC = g++
 CFLAGS = -O3 -std=c++11 -fopenmp -mpopcnt
 
 # define any directories containing header files other than /usr/include
-INCLUDES = -Iparallel_hashmap
+INCLUDES = -Icpp/parallel_hashmap
 
 all : isslScoreOfftargets isslCreateIndex
 
-isslScoreOfftargets : isslScoreOfftargets.cpp
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+isslScoreOfftargets : ./cpp/isslScoreOfftargets.cpp
+	$(CC) $(CFLAGS) $(INCLUDES) -o ./bin/$@ $^
 
-isslCreateIndex : isslCreateIndex.cpp
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+isslCreateIndex : ./cpp/isslCreateIndex.cpp
+	$(CC) $(CFLAGS) $(INCLUDES) -o ./bin/$@ $^
 
 clean:
 	$(RM) isslScoreOfftargets isslCreateIndex

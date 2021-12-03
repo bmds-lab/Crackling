@@ -7,7 +7,7 @@ Config:
     - See config.ini
 '''
 
-import argparse, ast, csv, joblib, os, re, sys, time, tempfile, psutil
+import argparse, ast, csv, joblib, os, re, sys, time, tempfile
 
 from ConfigManager import ConfigManager
 from Paginator import Paginator
@@ -348,9 +348,6 @@ def Crackling(configMngr):
         ##########################################
         if (configMngr['consensus'].getboolean('mm10db')):
             printer('mm10db - check secondary structure.')
-            
-            mem = psutil.virtual_memory()
-            printer(f'There is {(mem.available/1024/1024)} megabytes of memory available.')
             
             # RNAFold is memory intensive for very large datasets.
             # We will paginate in order not to overflow memory.
@@ -822,19 +819,5 @@ def Crackling(configMngr):
     sys.stderr = _stderr
     
 if __name__ == '__main__':
-    # load in config
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-c', help='Configuration file', default=None, required=True)
-    args = parser.parse_args()
-
-    configMngr = ConfigManager(args.c, lambda x : print(f'configMngr says: {x}'))
-
-    if not configMngr.isConfigured():
-        print('Something went wrong with reading the configuration.')
-        exit()
-    else:
-        printer('Crackling is starting...')
-        
-        Crackling(configMngr)
-        
-    print('Goodbye.')
+    print('This file is not callable')
+    exit(1)

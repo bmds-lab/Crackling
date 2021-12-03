@@ -8,7 +8,11 @@ bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
 
 ## Preamble
 
-We present Crackling, a new method for whole-genome identification of suitable CRISPR targets. The method maximises the efficiency of the guides by combining the results of multiple scoring approaches. On experimental data, the set of guides it selects are better than those produced by existing tools. The method also incorporates a new approach for faster off-target scoring, based on Inverted Signature Slice Lists (ISSL). This approach provides a gain of an order of magnitude in speed, while preserving the same level of accuracy.
+> The design of CRISPR-Cas9 guide RNAs is not trivial, and is a computationally demanding task. Design tools need to identify target sequences that will maximise the likelihood of obtaining the desired cut, whilst minimising off-target risk. There is a need for a tool that can meet both objectives while remaining practical to use on large genomes.
+>
+> Here, we present Crackling, a new method that is more suitable for meeting these objectives. We test its performance on 12 genomes and on data from validation studies. Crackling maximises guide efficiency by combining multiple scoring approaches. On experimental data, the guides it selects are better than those selected by others. It also incorporates Inverted Signature Slice Lists (ISSL) for faster off-target scoring. ISSL provides a gain of an order of magnitude in speed compared to other popular tools, such as Cas-OFFinder, Crisflash and FlashFry, while preserving the same level of accuracy. Overall, this makes Crackling a faster and better method to design guide RNAs at scale.
+>
+> Crackling is available at https://github.com/bmds-lab/Crackling under the Berkeley Software Distribution (BSD) 3-Clause license. 
 
 ## Dependencies
 
@@ -26,14 +30,35 @@ We present Crackling, a new method for whole-genome identification of suitable C
 
 1. Clone or [download](https://github.com/bmds-lab/Crackling/archive/master.zip) the source.
 
-2. Configure the pipeline. See `config.py`.
+    ```
+    git clone https://github.com/bmds-lab/Crackling.git ~/Crackling/
+    cd ~/Crackling
+    ```
 
-3. Ensure Bowtie2 and RNAFold are reachable from the installation directory.
-
-4. Compile the off-target scoring function. An index of off-targets is required: to prepare this, read the next section (*Off-target Indexing*).
+2. Install using pip
 
     ```
-    g++ -o isslScoreOfftargets isslScoreOfftargets.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
+    python3.6 -m pip install -e ~/Crackling/
+    ```
+
+    The `-e` flag is for *editable*,
+
+    > -e	Install a project in editable mode (i.e. setuptools "develop mode") from a local project path or a VCS url.
+
+2. Configure the pipeline. See `config.ini`.
+
+3. Ensure Bowtie2 and RNAFold are reachable system-wide, by adding them to your environments *PATH* variable.
+
+5. Compile the off-target indexing and scoring functions. An index of off-targets is required: to prepare this, read the next section (*Off-target Indexing*).
+
+    ```
+    make
+    ```
+
+    or
+
+    ```
+    g++ -o ./bin/isslScoreOfftargets ./src/isslScoreOfftargets.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
     ```
 
 5. Run the pipeline: 
@@ -47,13 +72,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
 1. Extract off-target sites:
 
     ```
-    python extractOfftargets.py <output-file>  {<input-files>... | input-dir>}
+    python bin/extractOfftargets.py <output-file>  {<input-files>... | input-dir>}
     ```
 
     For example:
 
     ```
-    python extractOfftargets.py ~/genomes/mouse_offtargets.txt ~/genomes/mouse.fa
+    python bin/extractOfftargets.py ~/genomes/mouse_offtargets.txt ~/genomes/mouse.fa
     ```
 
    The input provided can be:
@@ -71,7 +96,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
     Compile the indexer first: 
     
     ```
-    g++ -o isslCreateIndex isslCreateIndex.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+	make
+	```
+	
+	or 
+	
+	```
+    g++ -o ./bin/isslCreateIndex ./src/isslCreateIndex.cpp -O3 -std=c++11 -fopenmp -mpopcnt
     ```
     
     Generate the index:
@@ -79,13 +110,13 @@ We present Crackling, a new method for whole-genome identification of suitable C
     *For a 20bp sgRNA where up to four mismatches are allowed, use a slice width of eight*
     
     ```
-    ./isslCreateIndex <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
+    ./bin/isslCreateIndex <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
     ```
     
     For example:
     
     ```
-    ./isslCreateIndex ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
+    ./bin/isslCreateIndex ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
     ```
 
 

@@ -1,3 +1,4 @@
+#!/usr/bin/python3.6
 '''
 Faster and better CRISPR guide RNA design with the Crackling method.
 Jacob Bradford, Timothy Chappell, Dimitri Perrin
