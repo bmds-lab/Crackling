@@ -255,6 +255,8 @@ def Crackling(configMngr):
         # Run start time
         start_time = time.time()
             
+        printer('Processing batch file...')
+
         # Create new candidate guide dictionary
         candidateGuides = {}
         # Load guides from temp file
@@ -277,6 +279,8 @@ def Crackling(configMngr):
                     candidateGuides[row[0]]['start'] = row[2]
                     candidateGuides[row[0]]['end'] = row[3]
                     candidateGuides[row[0]]['strand'] = row[4]
+
+        printer(f'Loaded batch {guideBatchinator.currentBatch} of {len(guideBatchinator.batchFiles)}')
 
         ############################################
         ##     Removing targets with leading T    ##

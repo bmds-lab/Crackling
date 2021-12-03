@@ -6,6 +6,7 @@ class Batchinator:
         self.currentFile = tempfile.NamedTemporaryFile(mode='w',delete=False,dir=self.workingDir.name)
         self.csvWriter = csv.writer(self.currentFile, delimiter=',', quotechar='"', dialect='unix', quoting=csv.QUOTE_MINIMAL)
         self.batchFiles = []
+        self.currentBatch = 0
         self.batchSize = batchSize
         self.entryCount = 0
 
@@ -16,6 +17,7 @@ class Batchinator:
         self.batchFiles.append(self.currentFile)
         # yeild the file names
         for file in self.batchFiles:
+            self.currentBatch += 1
             yield file.name
 
     def recordEntry(self, entry):
