@@ -20,6 +20,8 @@ We present Crackling, a new method for whole-genome identification of suitable C
 
 - sgRNAScorer 2.0 model (included)
 
+- Python v3.6+
+
 ## Installation
 
 1. Clone or [download](https://github.com/bmds-lab/Crackling/archive/master.zip) the source.
@@ -31,45 +33,45 @@ We present Crackling, a new method for whole-genome identification of suitable C
 4. Compile the off-target scoring function. An index of off-targets is required: to prepare this, read the next section (*Off-target Indexing*).
 
     ```
-    g++ -o search_ots_score search_ots_score.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
+    g++ -o isslScoreOfftargets isslScoreOfftargets.cpp -O3 -std=c++11 -fopenmp -mpopcnt -Iparallel_hashmap
     ```
 
 5. Run the pipeline: 
 
     ```
-    python3 process.py -c config
+    python Crackling.py -c config
     ```
 
 ## Off-target Indexing
 
-1. Prepare a file for your genome which contains one line per chromosome.
-
-2. Extract off-target sites:
+1. Extract off-target sites:
 
     ```
-    python prepareListOfftargetSites.py <input-file> <output-file>
+    python extractOfftargets.py <output-file>  {<input-files>... | input-dir>}
     ```
-    
+
     For example:
-    
+
     ```
-    python prepareListOfftargetSites.py ~/genomes/mouse.txt ~/genomes/mouse_offtargets.txt
+    python extractOfftargets.py ~/genomes/mouse_offtargets.txt ~/genomes/mouse.fa
     ```
 
-3. Sort the off-target sites. 
+   The input provided can be:
 
-    On Linux:
-    
-    ```
-    sort --parallel=64 ~/genomes/mouse_offtargets.txt > ~/genomes/mouse_offtargets-sorted.txt
-    ```
+   - A single, or a space sperated list, of multi-FASTA formatted files
 
-4. Build the ISSL index
+   - A directory, for which we scan every file by parsing, using [glob](https://docs.python.org/3/library/glob.html): `<input-dir>/*`
+
+   Note: Unlike previous versions, sorting the extracted off-targets is no longer required as extractOfftargets.py completes this automatically now.
+
+
+
+2. Build the ISSL index
 
     Compile the indexer first: 
     
     ```
-    g++ -o index_offtargetSites index_offtargetSites.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+    g++ -o isslCreateIndex isslCreateIndex.cpp -O3 -std=c++11 -fopenmp -mpopcnt
     ```
     
     Generate the index:
@@ -77,14 +79,35 @@ We present Crackling, a new method for whole-genome identification of suitable C
     *For a 20bp sgRNA where up to four mismatches are allowed, use a slice width of eight*
     
     ```
-    ./index_offtargetSites <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
+    ./isslCreateIndex <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
     ```
     
     For example:
     
     ```
-    ./index_offtargetSites ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
+    ./isslCreateIndex ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
     ```
+
+
+
+## Bowtie2 index
+
+The Bowtie2 manual can be found [here](http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml).
+
+Crackling requires a Bowtie2 index to be provided.
+
+Our recommended usage:
+
+```
+bowtie2-build --threads 128 input-file output-file
+```
+
+For example:
+
+```bash
+bowtie2-build --threads 128 ~/genomes/mouse.fa ~/genomes/mouse.fa.bowtie2
+```
+
 
 
 ## References

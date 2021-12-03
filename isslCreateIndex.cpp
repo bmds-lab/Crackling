@@ -7,7 +7,7 @@ bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
 
 To compile:
 
-g++ -o index_offtargetSites index_offtargetSites.cpp -O3 -std=c++11 -fopenmp -mpopcnt
+g++ -o isslCreateIndex isslCreateIndex.cpp -O3 -std=c++11 -fopenmp -mpopcnt
 
 */
 
@@ -239,7 +239,6 @@ int main(int argc, char **argv)
 	int maxDist = seqLength * 2 / sliceWidth - 1;
 	size_t scoresCount = 0;
 	
-	#pragma omp parallel for
 	for (int i = 1; i <= maxDist; i++) {
 		vector<uint64_t> tempMasks;
 		tempMasks = computeMasksTwoBit(20, i);
