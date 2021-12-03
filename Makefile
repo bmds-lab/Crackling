@@ -16,7 +16,7 @@ TARGET = isslScoreOfftargets isslCreateIndex
 all:	$(TARGET)
 
 $(TARGET) : $(SRC) 
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $< $(LFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $<
 
 clean:
 	$(RM) $(TARGET)
