@@ -64,7 +64,7 @@ bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
 5. Run the pipeline: 
 
     ```
-    python Crackling.py -c config
+    python Crackling.py -c config.ini
     ```
 
 ## Off-target Indexing
@@ -91,7 +91,7 @@ bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
 
 
 
-2. Build the ISSL index
+2. Compile the ISSL indexer
 
     Compile the indexer first: 
     
@@ -105,21 +105,36 @@ bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
     g++ -o ./bin/isslCreateIndex ./src/isslCreateIndex.cpp -O3 -std=c++11 -fopenmp -mpopcnt
     ```
     
-    Generate the index:
-    
-    *For a 20bp sgRNA where up to four mismatches are allowed, use a slice width of eight*
-    
+3. Generate the index:
+   
     ```
     ./bin/isslCreateIndex <offtargets-sorted> <guide-length> <slice-width-bits> <index-name>
     ```
     
     For example:
     
+    *For a 20bp sgRNA where up to four mismatches are allowed, use a slice width of eight (4 mismatches \* 2 bits per mismatch)*
+    
     ```
     ./bin/isslCreateIndex ~/genomes/mouse_offtargets-sorted.txt 20 8 ~/genomes/mouse_offtargets-sorted.txt.issl
     ```
+    
+    A progress indicator is printed to *stderr*, like so:
+    
+    > 8576/8583 : 6548
+    > 8577/8583 : 6549
+    > 8578/8583 : 6549
+    > 8579/8583 : 6549
+    > 8580/8583 : 6549
+    > 8581/8583 : 6549
+    > 8582/8583 : 6549
+    > 8583/8583 : 6550
 
-
+    formatted as `<current line of input file> / <number of lines in input file> : <running total of distinct sites>`.
+    
+    This is indicating that the 6549'th distinct site has been seen on lines 8577 through 8582.
+    
+    The indicator is provided for every 10,000 input lines that are processed, and for every of the last 100 input lines.
 
 ## Bowtie2 index
 
@@ -139,7 +154,7 @@ For example:
 bowtie2-build --threads 128 ~/genomes/mouse.fa ~/genomes/mouse.fa.bowtie2
 ```
 
-
+Bowtie2 produces multiple files for its index. When referring to the index, use the base-name (i.e. `output-file`) that you provided `bowtie2-build`.
 
 ## References
 
