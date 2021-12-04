@@ -169,7 +169,7 @@ int main(int argc, char **argv)
     vector<uint64_t> seqSignatures;
     vector<uint32_t> seqSignaturesOccurrences;
     
-	size_t myCount = 0;
+	size_t distinctSites = 0;
     {
         vector<char> entireDataSet(fileSize);
 
@@ -179,10 +179,10 @@ int main(int argc, char **argv)
         }
         fclose(fp);
 
-		size_t i = 0;
+		size_t progressCount = 0;
 		size_t offtargetId = 0;
-		while (i < seqCount) {
-			char *ptr = &entireDataSet[i * seqLineLength];
+		while (progressCount < seqCount) {
+			char *ptr = &entireDataSet[progressCount * seqLineLength];
 			
 			uint64_t signature = sequenceToSignature(ptr);
 
@@ -191,17 +191,19 @@ int main(int argc, char **argv)
 			uint32_t occurrences = 1;
 			while (memcmp(ptr, ptr + (seqLineLength * occurrences), seqLength) == 0) {
 				occurrences++;
+				if ((seqCount - progressCount - occurrences) < 100)
+					fprintf(stderr, "%zu/%zu : %zu\n", (progressCount+occurrences), seqCount, distinctSites);
+					
 			}
 
 			seqSignatures.push_back(signature);
 			seqSignaturesOccurrences.push_back(occurrences);
 			
-			myCount++;
-			if (myCount % 10000 == 0) {
-				fprintf(stderr, "%zu/%zu : %zu\n", myCount, seqCount, i);
-			}
+			distinctSites++;
+			if (progressCount % 10000 == 0)
+				fprintf(stderr, "%zu/%zu : %zu\n", progressCount, seqCount, distinctSites);
 			
-			i += occurrences;
+			progressCount += occurrences;
 		}
     
     }
@@ -209,7 +211,7 @@ int main(int argc, char **argv)
     size_t sliceWidth = atoi(argv[3]);
     size_t sliceLimit = 1 << sliceWidth;
     size_t sliceCount = (seqLength * 2) / sliceWidth;
-    size_t offtargetsCount = myCount;
+    size_t offtargetsCount = distinctSites;
 	
     vector<vector<vector<uint64_t>>> sliceLists(sliceCount, vector<vector<uint64_t>>(sliceLimit));
     
