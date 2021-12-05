@@ -122,25 +122,26 @@ int main(int argc, char **argv)
     ScoreMethod scoreMethod = ScoreMethod::unknown;
 	bool calcCfd = false;
 	bool calcMit = false;
-    if (!argScoreMethod.compare("and"))
+    if (!argScoreMethod.compare("and")) {
 		scoreMethod = ScoreMethod::mitAndCfd;
 		calcCfd = true;
 		calcMit = true;
-	if (!argScoreMethod.compare("or"))
+	} else if (!argScoreMethod.compare("or")) {
 		scoreMethod = ScoreMethod::mitOrCfd;
 		calcCfd = true;
 		calcMit = true;
-	if (!argScoreMethod.compare("avg"))
+	} else if (!argScoreMethod.compare("avg")) {
 		scoreMethod = ScoreMethod::avgMitCfd;
 		calcCfd = true;
 		calcMit = true;
-	if (!argScoreMethod.compare("mit"))
+	} else if (!argScoreMethod.compare("mit")) {
 		scoreMethod = ScoreMethod::mit;
 		calcMit = true;
-	if (!argScoreMethod.compare("cfd"))
+	} else if (!argScoreMethod.compare("cfd")) {
 		scoreMethod = ScoreMethod::cfd;
 		calcCfd = true;
-		
+	}
+	
     /** Begin reading the binary encoded ISSL, structured as:
      *      - a header (6 items)
      *      - precalcuated local MIT scores
