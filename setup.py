@@ -23,5 +23,8 @@ setuptools.setup(
     license=license,
     packages=[],
     install_requires=[],
-    python_requires='>=3.6'
+    python_requires='>=3.6',
+    entry_points = {
+        'console_scripts': ['Crackling=command_line:main'],
+    }
 )

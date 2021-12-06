@@ -1,5 +1,5 @@
-from Crackling.Crackling import Crackling
-from Crackling.ConfigManager import ConfigManager
+from Crackling import Crackling
+from ConfigManager import ConfigManager
 
 '''
 "[If] a package’s __init__.py code defines a list named __all__, it is taken to 
