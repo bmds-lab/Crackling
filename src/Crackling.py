@@ -747,7 +747,7 @@ def Crackling(configMngr):
                 with open(configMngr['offtargetscore']['output'], 'r') as fTargetsScored:
                     for targetScored in [x.split('\t') for x in fTargetsScored.readlines()]:
                         if len(targetScored) == 3:
-                            targetsScored[targetScored[0]] = {'MIT': 0, 'CFD': 0}
+                            targetsScored[targetScored[0]] = {'MIT': -1.0, 'CFD': -1.0}
                             targetsScored[targetScored[0]]['MIT'] = float(targetScored[1].strip())
                             targetsScored[targetScored[0]]['CFD'] = float(targetScored[2].strip())
                 
