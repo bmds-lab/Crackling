@@ -122,14 +122,21 @@ bioRxiv 2020.02.14.950261; doi: https://doi.org/10.1101/2020.02.14.950261
     A progress indicator is printed to *stderr*, like so:
     
     > 8576/8583 : 6548
+    >
     > 8577/8583 : 6549
+    >
     > 8578/8583 : 6549
+    >
     > 8579/8583 : 6549
+    >
     > 8580/8583 : 6549
+    >
     > 8581/8583 : 6549
+    >
     > 8582/8583 : 6549
+    >
     > 8583/8583 : 6550
-
+    
     formatted as `<current line of input file> / <number of lines in input file> : <running total of distinct sites>`.
     
     This is indicating that the 6549'th distinct site has been seen on lines 8577 through 8582.
