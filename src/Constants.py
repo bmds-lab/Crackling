@@ -34,7 +34,8 @@ DEFAULT_GUIDE_PROPERTIES = {
     'bowtieChr'                 : CODE_UNTESTED,
     'bowtieStart'               : CODE_UNTESTED,
     'bowtieEnd'                 : CODE_UNTESTED,
-    'offtargetscore'            : CODE_UNTESTED,
+    'mitOfftargetscore'        : CODE_UNTESTED,
+    'cfdOfftargetscore'        : CODE_UNTESTED,
     'passedAvoidLeadingT'       : CODE_UNTESTED,
 }
 
@@ -62,7 +63,8 @@ DEFAULT_GUIDE_PROPERTIES_ORDER = [
     'bowtieChr',
     'bowtieStart',
     'bowtieEnd',
-    'offtargetscore',
+    'mitOfftargetscore',
+    'cfdOfftargetscore',
     'passedAvoidLeadingT',
     #'passedReversePrimer',
 ]
