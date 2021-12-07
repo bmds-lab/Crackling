@@ -242,24 +242,27 @@ def startMultiprocessing(fpInputs, fpOutput, mpPool):
         mpPool
     )
 
-if __name__ == '__main__':
+def main():
     if (len(sys.argv) < 3):
-        print('Error!')
-        print('Expecting: ExtractOfftargets.py <output-file> [<input-file-1> <input-file-2> <input-file-n> | <input-dir>]')
-        print('\n')
-        exit()
+            print('Error!')
+            print('Expecting: ExtractOfftargets.py <output-file> [<input-file-1> <input-file-2> <input-file-n> | <input-dir>]')
+            print('\n')
+            exit()
 
-    # Create multiprocessing pool
-    # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
-    mpPool = multiprocessing.Pool(PROCESSES_COUNT)
+        # Create multiprocessing pool
+        # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
+        mpPool = multiprocessing.Pool(PROCESSES_COUNT)
 
-    fpOutput = sys.argv[1]
-    
-    fpInputs = sys.argv[2:]
+        fpOutput = sys.argv[1]
         
-    startMultiprocessing(fpInputs, fpOutput, mpPool)
-    
-    # Clean up. Close multiprocessing pool
-    mpPool.close()
+        fpInputs = sys.argv[2:]
+            
+        startMultiprocessing(fpInputs, fpOutput, mpPool)
+        
+        # Clean up. Close multiprocessing pool
+        mpPool.close()
 
-    printer('Goodbye.')
+        printer('Goodbye.')
+
+if __name__ == '__main__':
+    main()

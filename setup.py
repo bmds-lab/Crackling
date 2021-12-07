@@ -26,7 +26,8 @@ setuptools.setup(
     entry_points = {
         'console_scripts': [
             'Crackling=utils.Crackling_cli:main',
-            'countHitTranscripts=utils.countHitTranscripts:main'
+            'countHitTranscripts=utils.countHitTranscripts:main',
+            'extractOfftargets=utils.extractOfftargets:main',
         ],
     }
 )
