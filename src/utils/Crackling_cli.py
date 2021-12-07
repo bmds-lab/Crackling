@@ -19,3 +19,6 @@ def main():
         printer('Crackling is starting...')
 
     Crackling(cm)
+    
+if __name__ == '__main__':
+    main()
