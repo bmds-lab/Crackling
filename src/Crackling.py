@@ -454,6 +454,7 @@ def Crackling(configMngr):
                                 failedCount += 1
                             else:
                                 candidateGuides[target23]['passedSecondaryStructure'] = CODE_ACCEPTED
+                    testedCount += 1
 
 
             printer(f'\t{failedCount} of {testedCount} failed here.')
