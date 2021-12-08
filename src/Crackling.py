@@ -26,8 +26,10 @@ def Crackling(configMngr):
     sys.stderr = configMngr.getErrLogMethod()
 
     lastRunTimeSec = 0
-    lastScaffoldSizeBytes = 0
+    seqFileSize = 0
     totalRunTimeSec = 0
+
+    startTime = time.time()
 
     ####################################
     ###     Run-time Optimisation     ##
@@ -158,17 +160,10 @@ def Crackling(configMngr):
     recordedSequences = set()
 
     for seqFilePath in configMngr.getIterFilesToProcess():
-        # Run start time
-        start_time = time.time()
-
         printer(f'Identifying possible target sites in: {seqFilePath}')
+        seqFileSize = os.path.getsize(seqFilePath)
 
-        completedPercent = round((float(completedSizeBytes) / float(totalSizeBytes) * 100.0), 3)
-        printer(f'{completedSizeBytes} of {totalSizeBytes} bytes processed ({completedPercent}%)')
-
-        lastScaffoldSizeBytes = os.path.getsize(seqFilePath)
-
-        completedSizeBytes += lastScaffoldSizeBytes
+        completedSizeBytes += seqFileSize
 
         # We first remove all the line breaks within a given sequence (FASTA format)
         with open(seqFilePath, 'r') as inFile, tempfile.NamedTemporaryFile(mode='w',delete=False) as parsedFile:
@@ -229,13 +224,11 @@ def Crackling(configMngr):
                     # Record duplicate guide
                     duplicateGuides.add(guide[0])
 
-        printer(f'Identified {len(candidateGuides)} possible target sites.')
-        
+        printer(f'\tIdentified {len(candidateGuides)} possible target sites.')
         printer(f'\t{len(duplicateGuides)} of {len(candidateGuides)} were seen more than once.')
         
-        # Update total time
-        preprocessingTime = time.time() - start_time
-        totalRunTimeSec += preprocessingTime
+        completedPercent = round((float(completedSizeBytes) / float(totalSizeBytes) * 100.0), 3)
+        printer(f'\tExtracted from {completedPercent}% of input')
 
     # Write header line for output file
     with open(configMngr['output']['file'], 'a+') as fOpen:
@@ -250,12 +243,11 @@ def Crackling(configMngr):
     del recordedSequences
 
 
-
+    batchFileId = 0
     for batchFile in guideBatchinator:
-        # Run start time
-        start_time = time.time()
-            
-        printer('Processing batch file...')
+        batchStartTime = time.time()
+    
+        printer(f'Processing batch file {(batchFileId+1)} of {len(guideBatchinator)}')
 
         # Create new candidate guide dictionary
         candidateGuides = {}
@@ -842,18 +834,17 @@ def Crackling(configMngr):
 
         printer(f'{len(candidateGuides)} guides evaluated.')
 
-        printer('Ran in {} (dd hh:mm:ss) or {} seconds'.format(
-            time.strftime('%d %H:%M:%S', time.gmtime((time.time() - start_time))), 
-            (time.time() - start_time)
+        printer('This batch ran in {} (dd hh:mm:ss) or {} seconds'.format(
+            time.strftime('%d %H:%M:%S', time.gmtime((time.time() - batchStartTime))), 
+            (time.time() - batchStartTime)
         ))
         
-        lastRunTimeSec = time.time() - start_time
-        totalRunTimeSec += lastRunTimeSec
-    
-    printer('Total run time (dd hh:mm:ss) {} or {} seconds'.format(
-        time.strftime('%d %H:%M:%S', time.gmtime(totalRunTimeSec)), 
-        totalRunTimeSec
-    ))   
+        batchFileId += 1
+        
+    printer('Total run time (dd hh:mm:ss) or {} seconds'.format(
+        time.strftime('%d %H:%M:%S', time.gmtime((time.time() - startTime))), 
+        (time.time() - startTime)
+    ))  
     
     sys.stdout = _stdout
     sys.stderr = _stderr
