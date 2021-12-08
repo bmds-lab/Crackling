@@ -159,7 +159,15 @@ def Crackling(configMngr):
     duplicateGuides = set()
     recordedSequences = set()
 
+    guideBatchinator = Batchinator(int(configMngr['input']['batch-size']))
+    
+    printer(f'Batchinator is writing to: {guideBatchinator.workingDir.name}')
+    
     for seqFilePath in configMngr.getIterFilesToProcess():
+    
+        numIdentifiedGuides = 0
+        numDuplicateGuides = 0
+        
         printer(f'Identifying possible target sites in: {seqFilePath}')
         seqFileSize = os.path.getsize(seqFilePath)
 
@@ -176,7 +184,6 @@ def Crackling(configMngr):
                     # this is (part of) the sequence; we write it without line break
                     parsedFile.write(line.strip())
 
-        guideBatchinator = Batchinator(int(configMngr['input']['batch-size']))
 
         with open(parsedFile.name, 'r') as inFile:
             seqHeader = ''
@@ -195,6 +202,7 @@ def Crackling(configMngr):
                         recordedSequences.add(seqHeader)
                         # Process the sequence
                         for guide in processSequence(seq):
+                            numIdentifiedGuides += 1
                             # Check if guide has been seen before
                             if guide[0] not in candidateGuides:
                                 # Record guide
@@ -204,6 +212,7 @@ def Crackling(configMngr):
                             else:
                                 # Record duplicate guide
                                 duplicateGuides.add(guide[0])
+                                numDuplicateGuides += 1
                     # Update sequence and sequence header 
                     seqHeader = line[1:]
                     seq = ''
@@ -214,6 +223,7 @@ def Crackling(configMngr):
 
             # Process the last sequence
             for guide in processSequence(seq):
+                numIdentifiedGuides += 1
                 # Check if guide has been seen before
                 if guide[0] not in candidateGuides:
                     # Record guide
@@ -223,11 +233,14 @@ def Crackling(configMngr):
                 else:
                     # Record duplicate guide
                     duplicateGuides.add(guide[0])
+                    numDuplicateGuides += 1
 
-        printer(f'\tIdentified {len(candidateGuides)} possible target sites.')
-        printer(f'\t{len(duplicateGuides)} of {len(candidateGuides)} were seen more than once.')
+        round(numDuplicateGuides / numIdentifiedGuides * 100.0, 3)
+        printer(f'\tIdentified {numIdentifiedGuides:,} possible target sites in this file.')
+        printer(f'\t{numDuplicateGuides:,} of {numIdentifiedGuides:,} ({duplicatePercent}%) were seen more than once.')
+        printer(f'\t{len(candidateGuides):,} distinct guides have been discovered so far.')
         
-        completedPercent = round((float(completedSizeBytes) / float(totalSizeBytes) * 100.0), 3)
+        completedPercent = round(completedSizeBytes / totalSizeBytes * 100.0, 3)
         printer(f'\tExtracted from {completedPercent}% of input')
 
     # Write header line for output file
@@ -272,7 +285,7 @@ def Crackling(configMngr):
                     candidateGuides[row[0]]['end'] = row[3]
                     candidateGuides[row[0]]['strand'] = row[4]
 
-        printer(f'Loaded batch {guideBatchinator.currentBatch} of {len(guideBatchinator.batchFiles)}')
+        printer(f'\tLoaded {len(candidateGuides):,} guides')
 
         ############################################
         ##     Removing targets with leading T    ##
@@ -292,7 +305,7 @@ def Crackling(configMngr):
                 
                 testedCount += 1
                 
-            printer(f'\t{failedCount} of {testedCount} failed here.')
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
 
         #########################################
         ##    AT% ideally is between 20-65%    ##
@@ -315,7 +328,7 @@ def Crackling(configMngr):
                 
                 testedCount += 1
                 
-            printer(f'\t{failedCount} of {testedCount} failed here.')
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
 
         ############################################
         ##   Removing targets that contain TTTT   ##
@@ -333,7 +346,7 @@ def Crackling(configMngr):
                     candidateGuides[target23]['passedTTTT'] = CODE_ACCEPTED
                 testedCount += 1
                 
-            printer(f'\t{failedCount} of {testedCount} failed here.')
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
 
         ##########################################
         ##   Calculating secondary structures   ##
@@ -360,7 +373,7 @@ def Crackling(configMngr):
                 pgLength
             ):   
                 if pgLength > 0:
-                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength} per page).')
+                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength:,} per page).')
                 
                 if os.path.exists(configMngr['rnafold']['output']):
                     os.remove(configMngr['rnafold']['output'])
@@ -373,7 +386,7 @@ def Crackling(configMngr):
                         fRnaInput.write(f'G{target23[1:20]}{guide}\n')
                         guidesInPage += 1
                         
-                printer(f'\t\t{guidesInPage} guides in this page.')
+                printer(f'\t\t{guidesInPage:,} guides in this page.')
 
                 runner('{} --noPS -j{} -i {} > {}'.format(
                         configMngr['rnafold']['binary'],
@@ -449,7 +462,7 @@ def Crackling(configMngr):
                     testedCount += 1
 
 
-            printer(f'\t{failedCount} of {testedCount} failed here.')
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
             
             if errorCount > 0:
                 printer(f'\t{errorCount} of {testedCount} erred here.')
@@ -525,7 +538,7 @@ def Crackling(configMngr):
                 else:
                     candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_ACCEPTED
                             
-            printer(f'\t{failedCount} of {testedCount} failed here.')
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
 
         #########################################
         ##                 G20                 ##
@@ -543,7 +556,7 @@ def Crackling(configMngr):
                     candidateGuides[target23]['passedG20'] = CODE_ACCEPTED
                 testedCount += 1
 
-            printer(f'\t{failedCount} of {testedCount} failed here.')    
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')    
 
         #########################################
         ##      Begin efficacy consensus       ##
@@ -564,7 +577,7 @@ def Crackling(configMngr):
                 
             testedCount += 1
                 
-        printer(f'\t{failedCount} of {testedCount} failed here.')
+        printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
 
         if (configMngr['offtargetscore'].getboolean('enabled')):
             ###############################################
@@ -583,7 +596,7 @@ def Crackling(configMngr):
             ):
 
                 if pgLength > 0:
-                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength} per page).')
+                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength:,} per page).')
                 
                 if os.path.exists(configMngr['bowtie2']['output']):
                     os.remove(configMngr['bowtie2']['output'])
@@ -612,7 +625,7 @@ def Crackling(configMngr):
                             
                         guidesInPage += 1
 
-                printer(f'\t\t{guidesInPage} guides in this page.')
+                printer(f'\t\t{guidesInPage:,} guides in this page.')
 
                 runner('{} -x {} -p {} --reorder --no-hd -t -r -U {} -S {}'.format(
                         configMngr['bowtie2']['binary'],
@@ -687,7 +700,7 @@ def Crackling(configMngr):
                 # we can remove the dictionary
                 del tempTargetDict_offset
             
-            printer(f'\t{failedCount} of {testedCount} failed here.')
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
 
             #########################################
             ##      Begin off-target scoring       ##
@@ -704,7 +717,7 @@ def Crackling(configMngr):
             ):
 
                 if pgLength > 0:
-                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength} per page).')
+                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength:,} per page).')
                 
                 # prepare the list of candidate guides to score
                 with open(configMngr['offtargetscore']['input'], 'w') as fTargetsToScore:
@@ -793,7 +806,7 @@ def Crackling(configMngr):
                             else:
                                 candidateGuides[target23]['passedOffTargetScore'] = CODE_ACCEPTED 
                         
-                printer(f'\t{failedCount} of {testedCount} failed here.')
+                printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
 
         #########################################
         ##           Begin output              ##
