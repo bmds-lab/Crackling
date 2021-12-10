@@ -19,7 +19,7 @@ setuptools.setup(
         'Bug Tracker': 'https://github.com/bmds-lab/Crackling/issues',
         'Lab website': 'http://biomedicaldatascience.com/'
     },
-    package_dir={'': 'src'},
+    package_dir={'': 'src/Crackling'},
     license=license,
     install_requires=[],
     python_requires='>=3.6',
