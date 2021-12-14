@@ -51,12 +51,12 @@ def Crackling(configMngr):
         
             if optimisation == 'low':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
+                if (candidateGuides[target23]['isUnique'] == CODE_REJECTED):
                     doAssess = False
                 
             if optimisation == 'medium':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
+                if (candidateGuides[target23]['isUnique'] == CODE_REJECTED):
                     doAssess = False
             
                 # For mm10db:
@@ -89,7 +89,7 @@ def Crackling(configMngr):
                 
             if optimisation == 'high':
                 # Never assess guides that appear twice
-                if (candidateGuides[target23]['seenDuplicate'] == CODE_REJECTED):
+                if (candidateGuides[target23]['isUnique'] == CODE_REJECTED):
                     doAssess = False
                     
                 # For mm10db:
@@ -278,7 +278,7 @@ def Crackling(configMngr):
                     candidateGuides[row[0]]['start'] = CODE_AMBIGUOUS
                     candidateGuides[row[0]]['end'] = CODE_AMBIGUOUS
                     candidateGuides[row[0]]['strand'] = CODE_AMBIGUOUS
-                    candidateGuides[row[0]]['seenDuplicate'] = CODE_REJECTED
+                    candidateGuides[row[0]]['isUnique'] = CODE_REJECTED
                 else:
                     candidateGuides[row[0]]['header'] = row[1]
                     candidateGuides[row[0]]['start'] = row[2]
