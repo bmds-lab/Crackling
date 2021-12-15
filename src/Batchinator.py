@@ -11,7 +11,7 @@ class Batchinator:
         self.entryCount = 0
 
     def __len__(self):
-        return self.entryCount
+        return len(self.batchFiles)
 
     def __iter__(self):
         # Close current file
