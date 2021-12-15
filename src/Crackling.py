@@ -91,7 +91,36 @@ def Crackling(configMngr):
                 # Never assess guides that appear twice
                 if (candidateGuides[target23]['isUnique'] == CODE_REJECTED):
                     doAssess = False
+                
+                # `consensusCount` cannot be used yet as it may not have been 
+                # calculated. instead, calculate it on-the-go.
+                countAlreadyAccepted = sum([
+                    candidateGuides[target23]['acceptedByMm10db'] == CODE_ACCEPTED,
+                    candidateGuides[target23]['passedG20'] == CODE_ACCEPTED,
+                    candidateGuides[target23]['acceptedBySgRnaScorer'] == CODE_ACCEPTED,
+                ])
+                
+                countAlreadyAssessed = sum([
+                    candidateGuides[target23]['acceptedByMm10db'] in [CODE_ACCEPTED, CODE_REJECTED],
+                    candidateGuides[target23]['passedG20'] in [CODE_ACCEPTED, CODE_REJECTED],
+                    candidateGuides[target23]['acceptedBySgRnaScorer'] in [CODE_ACCEPTED, CODE_REJECTED],
+                ])
+                
+                countToolsInConsensus = sum([
+                    configMngr['consensus'].getboolean('mm10db'),
+                    configMngr['consensus'].getboolean('chopchop'),
+                    configMngr['consensus'].getboolean('sgRNAScorer2'),
+                ])
+                
+                # Do not assess if passed consensus already
+                if countAlreadyAccepted >= consensusN:
+                    doAssess = False
                     
+                # Do not assess if there are not enough remaining tests to pass consensus
+                #   i.e. if the number of remaining tests is less than what is needed to pass then do not assess
+                if countToolsInConsensus - countAlreadyAssessed < consensusN - countAlreadyAccepted:
+                    doAssess = False
+                
                 # For mm10db:
                 if (module == MODULE_MM10DB):
                     # if any of the mm10db tests have failed, then fail them all
@@ -104,27 +133,8 @@ def Crackling(configMngr):
                     ]):
                         doAssess = False
 
-                # For CHOPCHOP:
-                if (module == MODULE_CHOPCHOP):
-                    if consensusN == 1 and candidateGuides[target23]['acceptedByMm10db'] == CODE_ACCEPTED:
-                        doAssess = False
-                        
-                # For sgRNAScorer2:
-                if (module == MODULE_SGRNASCORER2):
-                    currentConsensus = ((int)(candidateGuides[target23]['acceptedByMm10db'] == CODE_ACCEPTED) +    # mm10db accepted
-                    (int)(candidateGuides[target23]['passedG20'] == CODE_ACCEPTED))                            # chopchop-g20 accepted
-
-                    # if the guide is further than one test away from passing
-                    # the consensus approach, then skip it.
-                    if (currentConsensus < (consensusN - 1)):
-                        doAssess = False
-                        
                 # For specificity:
                 if (module == MODULE_SPECIFICITY):
-                    # don't assess if they failed consensus
-                    if (int(candidateGuides[target23]['consensusCount']) < consensusN):
-                        doAssess = False
-                    
                     # don't assess if they failed Bowtie
                     if (candidateGuides[target23]['passedBowtie'] == CODE_REJECTED):
                         doAssess = False
@@ -480,11 +490,11 @@ def Crackling(configMngr):
             failedCount = 0
             
             for target23 in candidateGuides:
-                if (CODE_REJECTED in [
-                    candidateGuides[target23]['passedATPercent'],
-                    candidateGuides[target23]['passedTTTT'],
-                    candidateGuides[target23]['passedSecondaryStructure'],
-                    candidateGuides[target23]['passedAvoidLeadingT'],
+                if not all([
+                    candidateGuides[target23]['passedATPercent'] == CODE_ACCEPTED,
+                    candidateGuides[target23]['passedTTTT'] == CODE_ACCEPTED,
+                    candidateGuides[target23]['passedSecondaryStructure'] == CODE_ACCEPTED,
+                    candidateGuides[target23]['passedAvoidLeadingT'] == CODE_ACCEPTED,
                 ]):
                     # mm10db rejected the guide
                     candidateGuides[target23]['acceptedByMm10db'] = CODE_REJECTED
@@ -498,6 +508,24 @@ def Crackling(configMngr):
             printer(f'\t{failedCount} failed.')
                 
             del acceptedCount
+
+        #########################################
+        ##                 G20                 ##
+        #########################################
+        if (configMngr['consensus'].getboolean('CHOPCHOP')):
+            printer('CHOPCHOP - remove those without G in position 20.')
+
+            failedCount = 0
+            testedCount = 0
+            for target23 in filterCandidateGuides(candidateGuides, MODULE_CHOPCHOP):
+                if target23[19] != 'G':
+                    candidateGuides[target23]['passedG20'] = CODE_REJECTED
+                    failedCount += 1
+                else:
+                    candidateGuides[target23]['passedG20'] = CODE_ACCEPTED
+                testedCount += 1
+
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')   
 
         #########################################
         ##         sgRNAScorer 2.0 model       ##
@@ -538,25 +566,7 @@ def Crackling(configMngr):
                 else:
                     candidateGuides[target23]['acceptedBySgRnaScorer'] = CODE_ACCEPTED
                             
-            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
-
-        #########################################
-        ##                 G20                 ##
-        #########################################
-        if (configMngr['consensus'].getboolean('CHOPCHOP')):
-            printer('CHOPCHOP - remove those without G in position 20.')
-
-            failedCount = 0
-            testedCount = 0
-            for target23 in filterCandidateGuides(candidateGuides, MODULE_CHOPCHOP):
-                if target23[19] != 'G':
-                    candidateGuides[target23]['passedG20'] = CODE_REJECTED
-                    failedCount += 1
-                else:
-                    candidateGuides[target23]['passedG20'] = CODE_ACCEPTED
-                testedCount += 1
-
-            printer(f'\t{failedCount:,} of {testedCount:,} failed here.')    
+            printer(f'\t{failedCount:,} of {testedCount:,} failed here.') 
 
         #########################################
         ##      Begin efficacy consensus       ##
