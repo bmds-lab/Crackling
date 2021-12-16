@@ -28,6 +28,9 @@ setuptools.setup(
             'Crackling=crackling.utils.Crackling_cli:main',
             'countHitTranscripts=crackling.utils.countHitTranscripts:main',
             'extractOfftargets=crackling.utils.extractOfftargets:main',
+            'trainModel=crackling.utils.trainModel:main'
         ],
-    }
+    },
+    include_package_data=True,
+    package_data={'': ['data/*']},
 )
