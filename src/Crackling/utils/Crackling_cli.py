@@ -1,7 +1,7 @@
-from Crackling import Crackling
-from ConfigManager import ConfigManager
+from crackling import Crackling
+from crackling import ConfigManager
 from pathlib import Path
-from Helpers import *
+from crackling.Helpers import printer
 
 import argparse
 

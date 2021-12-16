@@ -16,8 +16,8 @@ To use:     python3.7 ExtractOfftargets.py output-file  (input-files... | input-
 '''
 
 import glob, multiprocessing, os, re, shutil, string, sys, tempfile, heapq
-from Helpers import *
-from Paginator import Paginator
+from crackling.Helpers import *
+from crackling.Paginator import Paginator
 
 # Defining the patterns used to detect sequences
 pattern_forward_offsite = r"(?=([ACG][ACGT]{19}[ACGT][AG]G))"
@@ -244,25 +244,25 @@ def startMultiprocessing(fpInputs, fpOutput, mpPool):
 
 def main():
     if (len(sys.argv) < 3):
-            print('Error!')
-            print('Expecting: ExtractOfftargets.py <output-file> [<input-file-1> <input-file-2> <input-file-n> | <input-dir>]')
-            print('\n')
-            exit()
+        print('Error!')
+        print('Expecting: ExtractOfftargets.py <output-file> [<input-file-1> <input-file-2> <input-file-n> | <input-dir>]')
+        print('\n')
+        exit()
 
-        # Create multiprocessing pool
-        # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
-        mpPool = multiprocessing.Pool(PROCESSES_COUNT)
+    # Create multiprocessing pool
+    # https://docs.python.org/3/library/multiprocessing.html#multiprocessing.pool.Pool.starmap
+    mpPool = multiprocessing.Pool(PROCESSES_COUNT)
 
-        fpOutput = sys.argv[1]
+    fpOutput = sys.argv[1]
+    
+    fpInputs = sys.argv[2:]
         
-        fpInputs = sys.argv[2:]
-            
-        startMultiprocessing(fpInputs, fpOutput, mpPool)
-        
-        # Clean up. Close multiprocessing pool
-        mpPool.close()
+    startMultiprocessing(fpInputs, fpOutput, mpPool)
+    
+    # Clean up. Close multiprocessing pool
+    mpPool.close()
 
-        printer('Goodbye.')
+    printer('Goodbye.')
 
 if __name__ == '__main__':
     main()

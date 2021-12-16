@@ -7,7 +7,7 @@ with open('LICENSE', 'r', encoding='utf-8') as fh:
     license = fh.read()
 
 setuptools.setup(
-    name='Crackling',
+    name='crackling',
     version='2.0.0',
     author='Jake Bradford, Timothy Chappell, Dimitri Perrin',
     author_email='jake.bradford, dimitri.perrin (add @.qut.edu.au)',
@@ -19,15 +19,15 @@ setuptools.setup(
         'Bug Tracker': 'https://github.com/bmds-lab/Crackling/issues',
         'Lab website': 'http://biomedicaldatascience.com/'
     },
-    package_dir={'': 'src/Crackling'},
+    package_dir={'': 'src'},
     license=license,
     install_requires=[],
     python_requires='>=3.6',
     entry_points = {
         'console_scripts': [
-            'Crackling=utils.Crackling_cli:main',
-            'countHitTranscripts=utils.countHitTranscripts:main',
-            'extractOfftargets=utils.extractOfftargets:main',
+            'Crackling=crackling.utils.Crackling_cli:main',
+            'countHitTranscripts=crackling.utils.countHitTranscripts:main',
+            'extractOfftargets=crackling.utils.extractOfftargets:main',
         ],
     }
 )

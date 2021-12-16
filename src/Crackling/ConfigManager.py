@@ -1,6 +1,5 @@
 from time import localtime, strftime
-from shutil import copyfile
-import configparser, os, shutil, sys
+import configparser, os, shutil
 import glob
 
 class ConfigManager():
@@ -22,35 +21,35 @@ class ConfigManager():
 
         # Manager setup complete... attempt loading the configuration from file
         self._isConfigured = self._attemptLoadingConfig()
-    
+
         if self._isConfigured:
             self._createListOfFilesToAnalyse()
-    
+
         self._duplicateCracklingCodeAndConfig()
-    
+
         # now that we have initially set things up, we should override __setattr__
         #self.__setattr__ = self._setattr_
-    
+
     def __getitem__(self, arg):
         return self._ConfigParser.__getitem__(arg)
 
     def _sendMsg(self, str):
         self._sendMsg(str)
-    
+
     def _attemptLoadingConfig(self):
         filename, fileext = os.path.splitext(self._configFilePath)
         success = False
-        
+
         # Check for v1.0.0 which is a Python dictionary inside a .py file
         # (which will be passed by CLI args without an extension)
         if fileext == '':
             success = self._v1_0_0_to_v1_1_0()
-            
+
         # Check for >v1.0.0, which should now be in the INI format
         if not success:
             # There's some indication that it's INI formatted, but now prove it!
             success = self._read_v1_1_0()
-            
+
         if success:
             success = self._validateConfig()
 
@@ -59,7 +58,7 @@ class ConfigManager():
     def _v1_0_0_to_v1_1_0(self):
         # convert the Python dict config format, which has been deprecated,
         # to the new method using ConfigParser.
-        
+
         # begin by checking if the supplied file is from Version 1.0.0
         try:
             import importlib
@@ -68,16 +67,16 @@ class ConfigManager():
         except:
             self._sendMsg('Yikes!!')
             return False
-            
+
         # we know that the config was designed for v1.0.0 if the user
         # cannot specify which tools the consensus approach uses
         if ({'mm10db', 'sgRNAScorer2', 'CHOPCHOP'} != CONFIG['consensus'].keys()):
-            
+
             # Set the missing config attributes
             CONFIG['consensus']['mm10db'] = True
             CONFIG['consensus']['sgRNAScorer2'] = True
             CONFIG['consensus']['CHOPCHOP'] = True
-        
+
             # make sure that everything else is set
             if not (
                 'name'                  in CONFIG                    and
@@ -107,17 +106,17 @@ class ConfigManager():
                 'binary'                in CONFIG['rnafold']         and
                 'threads'               in CONFIG['rnafold']         and
                 'low_energy_threshold'  in CONFIG['rnafold']         and
-                'high_energy_threshold' in CONFIG['rnafold']         
+                'high_energy_threshold' in CONFIG['rnafold']
             ):
                 self._sendMsg('Your v1.0.0 configuration is invalid. We suggest updating to the new format, defined as per v1.1.0. See the GitHub repository for a sample configuration file. https://github.com/bmds-lab/Crackling')
                 return False
-        
-            
+
+
             # Ok, everything looks good, lets convert to the new config format
             # We can't use the ConfigParser.read_dict(..) method because the original Dict-formatted
             # config is not formatted correctly to be converted to INI, sigh
             self._ConfigParser.add_section('general')
-            
+
             for firstLayer in CONFIG:
                 if isinstance(CONFIG[firstLayer], dict):
                     self._ConfigParser.add_section(firstLayer)
@@ -125,15 +124,15 @@ class ConfigManager():
                         self._ConfigParser.set(firstLayer, secondLayer, str(CONFIG[firstLayer][secondLayer]))
                 else:
                     self._ConfigParser.set('general', firstLayer, CONFIG[firstLayer])
-         
-         
+
+
             newConfigFileName = f"{self._configFilePath}.ini"
             self._sendMsg(f'We have transformed your configuration file into the new format. See {newConfigFileName}')
             with open(newConfigFileName, 'w+') as fp:
                 self._ConfigParser.write(fp)
-        
+
         return True
-            
+
     def _read_v1_1_0(self):
         try:
             with open(self._configFilePath, 'r') as fp:
@@ -147,7 +146,7 @@ class ConfigManager():
         c = self._ConfigParser
         # this method should only be ran once the config has been loaded in
         passed = True
-    
+
         # check the binaries are executable
         for x in [
             c['offtargetscore']['binary'],
@@ -157,24 +156,24 @@ class ConfigManager():
             if not shutil.which(x):
                 passed = False
                 self._sendMsg(f'This binary cannot be executed: {x}')
-        
+
         # check that the 'n' value for the consensus is less than or equal to
         # the number of tools being used
         numToolsInConsensus = self.getNumberToolsInConsensus()
         n = int(c['consensus']['n'])
-        
+
         if n > numToolsInConsensus:
             passed = False
             self._sendMsg(f'The consensus approach is incorrectly set. You have specified {numToolsInConsensus} to be ran but the n-value is {n}. Change n to be <= {numToolsInConsensus}.')
-       
-        
+
+
         c['output']['file'] = os.path.join(c['output']['dir'], f"{self.getConfigName()}-{c['output']['fileName']}")
 
         if os.path.exists(c['output']['file']):
             passed = False
             self._sendMsg(f"The output file already exists: {c['output']['file']}")
             self._sendMsg(f"To avoid loosing data, please rename your output file.")
-            
+
         return passed
 
     def _createListOfFilesToAnalyse(self):
@@ -187,14 +186,14 @@ class ConfigManager():
         # If the input sequence is a file:
         elif os.path.isfile(self._ConfigParser['input']['exon-sequences']):
             self._filesToProcess = [self._ConfigParser['input']['exon-sequences']]
-            
+
         # it's something else
         else:
-            self._filesToProcess = glob.glob(self._ConfigParser['input']['exon-sequences'])          
-    
+            self._filesToProcess = glob.glob(self._ConfigParser['input']['exon-sequences'])
+
     def _duplicateCracklingCodeAndConfig(self):
         pass
-    
+
     def getConfigName(self):
         return self._ConfigParser['general']['name'] or self._fallbackName
 
@@ -220,11 +219,11 @@ class ConfigManager():
     def getIterFilesToProcess(self):
         fileId = 0
         for file in self._filesToProcess:
-            
+
             c = self._ConfigParser
-            
+
             name = self.getConfigName()
-            
+
             c['rnafold']['input'] = os.path.join(c['output']['dir'], f'{name}-rnafold-input.txt')
             c['rnafold']['output'] = os.path.join(c['output']['dir'], f'{name}-rnafold-output.txt')
 
@@ -239,26 +238,26 @@ class ConfigManager():
             yield file
 
     def getLogMethod(self):
-        from Logger import Logger
+        from crackling.Logger import Logger
         return Logger(os.path.join(
-            self._ConfigParser['output']['dir'], 
+            self._ConfigParser['output']['dir'],
             '{}-{}.log'.format(
                 self._ConfigParser['general']['name'],
                 self.getConfigName())
             )
         )
-        
+
     def getErrLogMethod(self):
-        from Logger import Logger
+        from crackling.Logger import Logger
         return Logger(os.path.join(
-            self._ConfigParser['output']['dir'], 
+            self._ConfigParser['output']['dir'],
             '{}-{}.errlog'.format(
                 self._ConfigParser['general']['name'],
                 self.getConfigName())
             )
         )
 
-    
+
 if __name__ == '__main__':
     print('Cracking: the configuration manager cannot be called independently.')
     print('Exiting...')
