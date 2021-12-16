@@ -1,6 +1,8 @@
 from subprocess import run
 from datetime import datetime
 
+__all__ = ['rc','transToDNA','AT_percentage','printer','runner']
+
 # Function that returns the reverse-complement of a given sequence
 def rc(dna):
     complements = str.maketrans('acgtrymkbdhvACGTRYMKBDHV', 'tgcayrkmvhdbTGCAYRKMVHDB')
