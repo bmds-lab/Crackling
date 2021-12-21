@@ -16,12 +16,14 @@ from __future__ import division
 
 import sys
 import argparse
-import os
+
 
 from collections import defaultdict
 from sklearn.svm import SVC
-from Bio import SeqIO
-from joblib import dump, load
+from joblib import dump
+from pathlib import Path
+
+import pkg_resources
 
 # binary encoding
 encoding = defaultdict(str)
@@ -101,16 +103,28 @@ def generateSVMOut(goodFile,badFile,spacerLength,pamOrientation,pamLength,svmOut
 	dump(clfLinear, svmOutputFile, compress=True)
 	
 
-def main(argv):
+def trainModel(args):
 	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument('-g','--good', type=argparse.FileType('r'),required=True)
-	parser.add_argument('-b','--bad', type=argparse.FileType('r'),required=True)
+	parser.add_argument('-g','--good',type=argparse.FileType('r'),required=True)
+	parser.add_argument('-b','--bad',type=argparse.FileType('r'),required=True)
 	parser.add_argument('-s','--spacerLength',required=True)
 	parser.add_argument('-p','--pamOrientation',required=True)
 	parser.add_argument('-l','--pamLength',required=True)
-	parser.add_argument('-o','--svmOutput',required=True) #type=argparse.FileType('w'),
-	opts = parser.parse_args(argv)
+	parser.add_argument('-o','--svmOutput',type=argparse.FileType('wb'),required=True)
+	opts = parser.parse_args(args)
 	generateSVMOut(opts.good,opts.bad,opts.spacerLength,opts.pamOrientation,opts.pamLength,opts.svmOutput)
+	print('Finished')
 
-if __name__ == '__main__':
-    main(sys.argv[1:])
+
+def main():
+	if len(sys.argv) == 1:
+		print('Using default arguments')
+		# Default config (retrain standard model)
+		good = str(Path(pkg_resources.resource_filename(__name__,'data/Cas9.High.tab')))
+		bad = str(Path(pkg_resources.resource_filename(__name__,'data/Cas9.Low.tab')))
+		output = str(Path(pkg_resources.resource_filename(__name__,'data/model-py3.txt')))
+		trainModel(['-g',good,'-b',bad,'-s','20','-p','3','-l','NGG','-o',output])
+	else:
+		print('Using user specified arguments')
+		# Else parse args
+		trainModel(sys.argv[1:])

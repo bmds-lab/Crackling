@@ -1,7 +1,7 @@
 import tempfile, csv
 
 class Batchinator:
-    def __init__(self, batchSize):
+    def __init__(self, batchSize:int):
         self.workingDir = tempfile.TemporaryDirectory()
         self.currentFile = tempfile.NamedTemporaryFile(mode='w',delete=False,dir=self.workingDir.name)
         self.csvWriter = csv.writer(self.currentFile, delimiter=',', quotechar='"', dialect='unix', quoting=csv.QUOTE_MINIMAL)
@@ -9,6 +9,9 @@ class Batchinator:
         self.currentBatch = 0
         self.batchSize = batchSize
         self.entryCount = 0
+
+    def __len__(self):
+        return len(self.batchFiles)
 
     def __iter__(self):
         # Close current file
@@ -20,7 +23,7 @@ class Batchinator:
             self.currentBatch += 1
             yield file.name
 
-    def recordEntry(self, entry):
+    def recordEntry(self, entry:list):
         # Increase the entry count
         self.entryCount += 1
         # Check if a new file is needed

@@ -1,3 +1,4 @@
+#!/usr/bin/python3.6
 '''
 Faster and better CRISPR guide RNA design with the Crackling method.
 Jacob Bradford, Timothy Chappell, Dimitri Perrin
@@ -15,8 +16,8 @@ To use:     python3.7 ExtractOfftargets.py output-file  (input-files... | input-
 '''
 
 import glob, multiprocessing, os, re, shutil, string, sys, tempfile, heapq
-from Helpers import *
-from Paginator import Paginator
+from crackling.Helpers import *
+from crackling.Paginator import Paginator
 
 # Defining the patterns used to detect sequences
 pattern_forward_offsite = r"(?=([ACG][ACGT]{19}[ACGT][AG]G))"
@@ -241,7 +242,7 @@ def startMultiprocessing(fpInputs, fpOutput, mpPool):
         mpPool
     )
 
-if __name__ == '__main__':
+def main():
     if (len(sys.argv) < 3):
         print('Error!')
         print('Expecting: ExtractOfftargets.py <output-file> [<input-file-1> <input-file-2> <input-file-n> | <input-dir>]')
@@ -262,3 +263,6 @@ if __name__ == '__main__':
     mpPool.close()
 
     printer('Goodbye.')
+
+if __name__ == '__main__':
+    main()

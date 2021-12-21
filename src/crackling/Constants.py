@@ -13,7 +13,7 @@ MODULE_SPECIFICITY = 'specificity'
 DEFAULT_GUIDE_PROPERTIES = {
     'seq'                       : "",
     'header'                    : "",
-    'seenDuplicate'             : CODE_ACCEPTED,
+    'isUnique'                  : CODE_ACCEPTED,
     'start'                     : CODE_UNTESTED,
     'end'                       : CODE_UNTESTED,
     'strand'                    : CODE_UNTESTED,
@@ -34,8 +34,8 @@ DEFAULT_GUIDE_PROPERTIES = {
     'bowtieChr'                 : CODE_UNTESTED,
     'bowtieStart'               : CODE_UNTESTED,
     'bowtieEnd'                 : CODE_UNTESTED,
-    'mitOfftargetscore'        : CODE_UNTESTED,
-    'cfdOfftargetscore'        : CODE_UNTESTED,
+    'mitOfftargetscore'         : CODE_UNTESTED,
+    'cfdOfftargetscore'         : CODE_UNTESTED,
     'passedAvoidLeadingT'       : CODE_UNTESTED,
 }
 
@@ -46,7 +46,7 @@ DEFAULT_GUIDE_PROPERTIES_ORDER = [
     'start',
     'end',
     'strand',
-    'seenDuplicate',
+    'isUnique',
     'passedG20',
     'passedTTTT',
     'passedATPercent',

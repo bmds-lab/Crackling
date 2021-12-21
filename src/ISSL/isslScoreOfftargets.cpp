@@ -41,6 +41,7 @@ size_t seqLength, seqCount, sliceWidth, sliceCount, offtargetsCount, scoresCount
 
 vector<uint8_t> nucleotideIndex(256);
 vector<char> signatureIndex(4);
+enum ScoreMethod { unknown = 0, mit = 1, cfd = 2, mitAndCfd = 3, mitOrCfd = 4, avgMitCfd = 5 };
 
 /// Returns the size (bytes) of the file at `path`
 size_t getFileSize(const char *path)
@@ -117,12 +118,30 @@ int main(int argc, char **argv)
      *      - CFD or MIT must drop below `threshold`
      *      - the average of CFD and MIT must below `threshold`
      */
-    string scoreMethod = argv[5];
-    
-    /** Which scores should be calcled? */
-    bool calcMit = (!scoreMethod.compare("mit") || !scoreMethod.compare("and") || !scoreMethod.compare("or") || !scoreMethod.compare("avg"));
-    bool calcCfd = (!scoreMethod.compare("cfd") || !scoreMethod.compare("and") || !scoreMethod.compare("or") || !scoreMethod.compare("avg"));
-
+	string argScoreMethod = argv[5];
+    ScoreMethod scoreMethod = ScoreMethod::unknown;
+	bool calcCfd = false;
+	bool calcMit = false;
+    if (!argScoreMethod.compare("and")) {
+		scoreMethod = ScoreMethod::mitAndCfd;
+		calcCfd = true;
+		calcMit = true;
+	} else if (!argScoreMethod.compare("or")) {
+		scoreMethod = ScoreMethod::mitOrCfd;
+		calcCfd = true;
+		calcMit = true;
+	} else if (!argScoreMethod.compare("avg")) {
+		scoreMethod = ScoreMethod::avgMitCfd;
+		calcCfd = true;
+		calcMit = true;
+	} else if (!argScoreMethod.compare("mit")) {
+		scoreMethod = ScoreMethod::mit;
+		calcMit = true;
+	} else if (!argScoreMethod.compare("cfd")) {
+		scoreMethod = ScoreMethod::cfd;
+		calcCfd = true;
+	}
+	
     /** Begin reading the binary encoded ISSL, structured as:
      *      - a header (6 items)
      *      - precalcuated local MIT scores
@@ -359,17 +378,19 @@ int main(int argc, char **argv)
                     uint64_t oddBits = xoredSignatures & 0x5555555555555555ull;
                     uint64_t mismatches = (evenBits >> 1) | oddBits;
                     int dist = __builtin_popcountll(mismatches);
-
-                    /** Prevent assessing the same off-target for multiple slices */
-                    uint64_t seenOfftargetAlready = 0;
-                    uint64_t * ptrOfftargetFlag = (offtargetTogglesTail - (signatureId / 64));
-                    seenOfftargetAlready = (*ptrOfftargetFlag >> (signatureId % 64)) & 1ULL;
-                    
+					
 					if (dist >= 0 && dist <= maxDist) {
+
+						/** Prevent assessing the same off-target for multiple slices */
+						uint64_t seenOfftargetAlready = 0;
+						uint64_t * ptrOfftargetFlag = (offtargetTogglesTail - (signatureId / 64));
+						seenOfftargetAlready = (*ptrOfftargetFlag >> (signatureId % 64)) & 1ULL;
+                    
+										
 						if (!seenOfftargetAlready) {
 							// Begin calculating MIT score
 							if (calcMit) {
-								if (dist > 0 && dist <= maxDist) {
+								if (dist > 0) {
 									totScoreMit += precalculatedScores[mismatches] * (double)occurrences;
 								}
 							} 
@@ -392,40 +413,43 @@ int main(int argc, char **argv)
 									for (size_t pos = 0; pos < 20; pos++) {
 										size_t mask = pos << 4;
 										
-										// Create the mask to look up the position-identity score
-										// In Python... c2b is char to bit
-										//  mask = pos << 4
-										//  mask |= c2b[sgRNA[pos]] << 2
-										//  mask |= c2b[revcom(offTaret[pos])]
-										
-										// Find identity at `pos` for search signature
-										// example: find identity in pos=2
-										//  Recall ISSL is inverted, hence:
-										//              3'-  T  G  C  C  G  A -5'
-										//  start           11 10 01 01 10 00   
-										//  3UL << pos*2    00 00 00 11 00 00 
-										//  and             00 00 00 01 00 00
-										//  shift           00 00 00 00 01 00
+										/** Create the mask to look up the position-identity score
+										 *      In Python... c2b is char to bit
+										 *       mask = pos << 4
+										 *       mask |= c2b[sgRNA[pos]] << 2
+										 *       mask |= c2b[revcom(offTaret[pos])]
+										 *      
+										 *      Find identity at `pos` for search signature
+										 *      example: find identity in pos=2
+										 *       Recall ISSL is inverted, hence:
+										 *                   3'-  T  G  C  C  G  A -5'
+										 *       start           11 10 01 01 10 00   
+										 *       3UL << pos*2    00 00 00 11 00 00 
+										 *       and             00 00 00 01 00 00
+										 *       shift           00 00 00 00 01 00
+										 */
 										uint64_t searchSigIdentityPos = searchSignature;
 										searchSigIdentityPos &= (3UL << (pos * 2));
 										searchSigIdentityPos = searchSigIdentityPos >> (pos * 2); 
 										searchSigIdentityPos = searchSigIdentityPos << 2;
 
-										// Find identity at `pos` for offtarget
-										// example: find identity in pos=2
-										//  Recall ISSL is inverted, hence:
-										//              3'-  T  G  C  C  G  A -5'
-										//  start           11 10 01 01 10 00   
-										//  3UL<<pos*2      00 00 00 11 00 00 
-										//  and             00 00 00 01 00 00
-										//  shift           00 00 00 00 00 01
-										//  rev comp 3UL    00 00 00 00 00 10 (done below)
+										/** Find identity at `pos` for offtarget
+										 *      Example: find identity in pos=2
+										 *      Recall ISSL is inverted, hence:
+										 *                  3'-  T  G  C  C  G  A -5'
+										 *      start           11 10 01 01 10 00   
+										 *      3UL<<pos*2      00 00 00 11 00 00 
+										 *      and             00 00 00 01 00 00
+										 *      shift           00 00 00 00 00 01
+										 *      rev comp 3UL    00 00 00 00 00 10 (done below)
+										 */
 										uint64_t offtargetIdentityPos = offtargets[signatureId];
 										offtargetIdentityPos &= (3UL << (pos * 2));
 										offtargetIdentityPos = offtargetIdentityPos >> (pos * 2); 
 
-										// Complete the mask
-										// reverse complement (^3UL) `offtargetIdentityPos` here
+										/** Complete the mask
+										 *      reverse complement (^3UL) `offtargetIdentityPos` here
+										 */
 										mask = (mask | searchSigIdentityPos | (offtargetIdentityPos ^ 3UL));
 
 										if (searchSigIdentityPos >> 2 != offtargetIdentityPos) {
@@ -440,31 +464,31 @@ int main(int argc, char **argv)
 							numOffTargetSitesScored += occurrences;
 
 							/** Stop calculating global score early if possible */
-							if (!scoreMethod.compare("and")) {
+							if (scoreMethod == ScoreMethod::mitAndCfd) {
 								if (totScoreMit > maximum_sum && totScoreCfd > maximum_sum) {
 									checkNextSlice = false;
 									break;
 								}
 							}
-							if (!scoreMethod.compare("or")) {
+							if (scoreMethod == ScoreMethod::mitOrCfd) {
 								if (totScoreMit > maximum_sum || totScoreCfd > maximum_sum) {
 									checkNextSlice = false;
 									break;
 								}
 							}
-							if (!scoreMethod.compare("avg")) {
+							if (scoreMethod == ScoreMethod::avgMitCfd) {
 								if (((totScoreMit + totScoreCfd) / 2.0) > maximum_sum) {
 									checkNextSlice = false;
 									break;
 								}
 							}
-							if (!scoreMethod.compare("mit")) {
+							if (scoreMethod == ScoreMethod::mit) {
 								if (totScoreMit > maximum_sum) {
 									checkNextSlice = false;
 									break;
 								}
 							}
-							if (!scoreMethod.compare("cfd")) {
+							if (scoreMethod == ScoreMethod::cfd) {
 								if (totScoreCfd > maximum_sum) {
 									checkNextSlice = false;
 									break;
