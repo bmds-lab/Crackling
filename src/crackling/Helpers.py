@@ -1,13 +1,7 @@
 from subprocess import run
 from datetime import datetime
 
-__all__ = ['rc','transToDNA','AT_percentage','printer','runner']
-
-# Function that returns the reverse-complement of a given sequence
-def rc(dna):
-    complements = str.maketrans('acgtrymkbdhvACGTRYMKBDHV', 'tgcayrkmvhdbTGCAYRKMVHDB')
-    rcseq = dna.translate(complements)[::-1]
-    return rcseq
+__all__ = ['transToDNA','AT_percentage','printer','runner']
 
 
 # Function that replaces U with T in the sequence (to go back from RNA to DNA)

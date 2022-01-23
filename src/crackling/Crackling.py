@@ -13,6 +13,8 @@ from crackling.Paginator import Paginator
 from crackling.Batchinator import Batchinator
 from crackling.Constants import *
 from crackling.Helpers import *
+from crackling.FileProcessor import find_candidates_in_file
+
 
 def Crackling(configMngr):
     totalSizeBytes = configMngr.getDatasetSizeBytes()
@@ -148,21 +150,6 @@ def Crackling(configMngr):
             if doAssess:
                 yield target23
 
-    def processSequence(sequence):
-        # Patterns for guide matching
-        pattern_forward = r'(?=([ATCG]{21}GG))'
-        pattern_reverse = r'(?=(CC[ACGT]{21}))'
-
-        # New sequence deteced, process sequence
-        # once for forward, once for reverse
-        for pattern, strand, seqModifier in [
-            [pattern_forward, '+', lambda x : x],
-            [pattern_reverse, '-', lambda x : rc(x)]
-        ]:
-            p = re.compile(pattern)
-            for m in p.finditer(sequence):
-                target23 = seqModifier(seq[m.start() : m.start() + 23])
-                yield [target23, seqHeader,  m.start(),  m.start() + 23, strand]
 
     ###################################
     ##   Processing the input file   ##
@@ -181,75 +168,8 @@ def Crackling(configMngr):
 
     for seqFilePath in configMngr.getIterFilesToProcess():
 
-        numIdentifiedGuides = 0
-        numDuplicateGuides = 0
-
-        printer(f'Identifying possible target sites in: {seqFilePath}')
-        seqFileSize = os.path.getsize(seqFilePath)
-
-        completedSizeBytes += seqFileSize
-
-        # We first remove all the line breaks within a given sequence (FASTA format)
-        with open(seqFilePath, 'r') as inFile, tempfile.NamedTemporaryFile(mode='w',delete=False) as parsedFile:
-            for line in inFile:
-                line = line.strip()
-                if line[0] == '>':
-                    # this is the header line for a new sequence, so we break the previous line and write the header as a new line
-                    parsedFile.write('\n'+line+'\n')
-                else:
-                    # this is (part of) the sequence; we write it without line break
-                    parsedFile.write(line.strip())
-
-
-        with open(parsedFile.name, 'r') as inFile:
-            seqHeader = ''
-            seq = ''
-            for line in inFile:
-                # Remove garbage from line
-                line = line.strip()
-                # Some lines (e.g., first line in file) can be just a line break, move to next line
-                if line=='':
-                    continue
-                # Header line, start of a new sequence
-                elif line[0]=='>':
-                    # If we haven't seen the sequence OR we have found a sequence without header
-                    if (seqHeader not in recordedSequences) or (seqHeader=='' and seq!=''):
-                        # Record header
-                        recordedSequences.add(seqHeader)
-                        # Process the sequence
-                        for guide in processSequence(seq):
-                            numIdentifiedGuides += 1
-                            # Check if guide has been seen before
-                            if guide[0] not in candidateGuides:
-                                # Record guide
-                                candidateGuides.add(guide[0])
-                                # Record candidate guide to temp file
-                                guideBatchinator.recordEntry(guide)
-                            else:
-                                # Record duplicate guide
-                                duplicateGuides.add(guide[0])
-                                numDuplicateGuides += 1
-                    # Update sequence and sequence header
-                    seqHeader = line[1:]
-                    seq = ''
-                # Sequence line, section of existing sequence
-                else:
-                    # Append section to total sequence
-                    seq += line.strip()
-
-            # Process the last sequence
-            for guide in processSequence(seq):
-                numIdentifiedGuides += 1
-                # Check if guide has been seen before
-                if guide[0] not in candidateGuides:
-                    # Record guide
-                    candidateGuides.add(guide[0])
-                    # Record candidate guide to temp file
-                    guideBatchinator.recordEntry(guide)
-                else:
-                    # Record duplicate guide
-                    duplicateGuides.add(guide[0])
-                    numDuplicateGuides += 1
+        candidateGuides, duplicateGuides, recordedSequences, fileSize, numIdentifiedGuides, numDuplicateGuides = find_candidates_in_file(guideBatchinator, seqFilePath, candidateGuides, duplicateGuides, recordedSequences)
+        completedSizeBytes += fileSize
 
         duplicatePercent = round(numDuplicateGuides / numIdentifiedGuides * 100.0, 3)
         printer(f'\tIdentified {numIdentifiedGuides:,} possible target sites in this file.')
@@ -268,7 +188,6 @@ def Crackling(configMngr):
         csvWriter.writerow(DEFAULT_GUIDE_PROPERTIES_ORDER)
 
     # Clean up unused variables
-    os.unlink(parsedFile.name)
     del candidateGuides
     del recordedSequences
 
