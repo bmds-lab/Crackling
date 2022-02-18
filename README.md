@@ -107,6 +107,7 @@ The Crackling package provides a number of utilities:
 - Off-target indexing (including extracting target sites and generating the ISSL index)
 - Counting targeted transcripts per guide RNA
 - Retraining the provided sgRNAScorer 2.0 model (if needed)
+- Extracting feature sequences when provided FASTA and GFF3.
 
 ## Off-target Indexing
 
@@ -235,6 +236,38 @@ Pickled to: /tmp/tmp68qd5n6y.p
 ['AAAT', 'Chr1', '200', '223', '2/4']
 ['AATA', 'Chr1', '320', '343', '4/4']
 ['ATAA', 'Chr1', '460', '483', '0/0']
+```
+
+## Extracting feature sequences
+You may wish to design guide RNA for coding regions only. Therefore, processing entire chromosomes would be wasteful. 
+We provide a utility to extract feature sequences from FASTA file(s), given a GFF3-formatted annotation is provided.
+
+```bash
+$extractFeatureSeqs --help
+usage: extractFeatureSeqs [-h] -f FASTA [FASTA ...] -g GFF -o OUTPUT_DIR [-l FEATURE_LEVELS] [--one-file-per-seq] [--output-filename OUTPUT_FILENAME]
+                          [--seq-line-length SEQ_LINE_LENGTH] [--upstream-buffer UPSTREAM_BUFFER] [--downstream-buffer DOWNSTREAM_BUFFER] [-v]
+
+Extract sequences from FASTA files according to GFF annotation records.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -f FASTA [FASTA ...], --fasta FASTA [FASTA ...]
+                        Paths to the FASTA files to process. You may use wildcards. (default: None)
+  -g GFF, --gff GFF     The path to the GFF file. (default: None)
+  -o OUTPUT_DIR, --output-dir OUTPUT_DIR
+                        The output directory to write in. (default: None)
+  -l FEATURE_LEVELS, --feature-levels FEATURE_LEVELS
+                        A comma-separated list of features (i.e. the third column) to use from the annotation. (default: exon)
+  --one-file-per-seq    Write each output sequence to its own file. (default: False)
+  --output-filename OUTPUT_FILENAME
+                        If writing all sequences to one output file, specify the name of the file here. (default: sequences.fa)
+  --seq-line-length SEQ_LINE_LENGTH
+                        The line length for sequences written to file. (default: 60)
+  --upstream-buffer UPSTREAM_BUFFER
+                        The number of positions to expand the sequence at the 5' end. (default: 0)
+  --downstream-buffer DOWNSTREAM_BUFFER
+                        The number of positions to expand the sequence at the 3' end. (default: 0)
+  -v, --verbose         Print what I am doing. (default: False)
 ```
 
 ## Training the sgRNAScorer 2.0 model (if needed)
