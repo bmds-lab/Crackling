@@ -13,8 +13,6 @@ Otherwise, run from CLI:
 """
 
 from Bio import SeqIO
-from Bio.SeqIO.FastaIO import FastaWriter
-from collections import ChainMap
 import os
 
 class GffRecord:
