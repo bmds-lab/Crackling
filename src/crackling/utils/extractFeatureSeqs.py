@@ -328,7 +328,7 @@ def main():
         args.fasta[0],
         args.gff,
         args.output_dir,
-        featureLevels = args.feature_levels,
+        featureLevels = args.feature_levels.split(','),
         outputOneFilePerSequence = args.one_file_per_seq,
         outputOneFileName = args.output_filename,
         outputSequenceWrap = args.seq_line_length,
