@@ -423,17 +423,16 @@ def Crackling(configMngr):
 
                 printer(f'\t\t{guidesInPage:,} guides in this page.')
 
-                runner('{} --noPS -j{} -i {} -o'.format(
+                runner('{} --noPS -j{} -i {} -o {}'.format(
                         configMngr['rnafold']['binary'],
                         configMngr['rnafold']['threads'],
-                        configMngr['rnafold']['input']
+                        configMngr['rnafold']['input'],
+                        configMngr['rnafold']['output']
                     ),
                     shell=True,
                     check=True
                 )
-
-                os.replace('RNAfold_output.fold' ,configMngr['rnafold']['output'])
-
+                
                 printer('\t\tStarting to process the RNAfold results.')
 
                 RNAstructures = {}
