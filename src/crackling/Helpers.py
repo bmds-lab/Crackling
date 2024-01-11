@@ -1,7 +1,7 @@
 from subprocess import run
 from datetime import datetime
 
-__all__ = ['rc','transToDNA','AT_percentage','printer','runner']
+__all__ = ['rc','transToDNA','AT_percentage','printer','runner','elapsedTimeString']
 
 # Function that returns the reverse-complement of a given sequence
 def rc(dna):
@@ -40,3 +40,14 @@ def runner(*args, **kwargs):
     printer(f"| Calling: {args}")
     run(*args, **kwargs)
     printer(f"| Finished")
+
+
+# Function that generates a string representing elapsed time
+def elapsedTimeString(start_time, end_time):
+    elapsed_seconds = end_time - start_time
+
+    days, remainder = divmod(elapsed_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    return f"{int(days)} {int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
