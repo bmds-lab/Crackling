@@ -7,7 +7,7 @@ Config:
     - See config.ini
 '''
 
-import ast, csv, joblib, os, re, sys, time, tempfile
+import ast, csv, joblib, os, re, sys, time, tempfile, shutil
 
 from crackling.Paginator import Paginator
 from crackling.Batchinator import Batchinator
@@ -875,17 +875,17 @@ def Crackling(configMngr):
 
         printer(f'{len(candidateGuides)} guides evaluated.')
 
-        printer('This batch ran in {} (dd hh:mm:ss) or {} seconds'.format(
-            time.strftime('%d %H:%M:%S', time.gmtime((time.time() - batchStartTime))),
-            (time.time() - batchStartTime)
-        ))
+        batchEndTime = time.time()
+        timeDelta = batchEndTime - batchStartTime
+
+        printer(f'This batch ran in {elapsedTimeString(batchStartTime, batchEndTime)} (dd hh:mm:ss) or {timeDelta:.3} seconds')
 
         batchFileId += 1
 
-    printer('Total run time (dd hh:mm:ss) or {} seconds'.format(
-        time.strftime('%d %H:%M:%S', time.gmtime((time.time() - startTime))),
-        (time.time() - startTime)
-    ))
+    endTime = time.time()
+    timeDelta = endTime - startTime
+
+    printer(f'Total run time {elapsedTimeString(startTime, endTime)} (dd hh:mm:ss) or {timeDelta:.3} seconds')
 
     sys.stdout.log.close()
     sys.stderr.log.close()
