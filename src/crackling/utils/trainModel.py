@@ -128,3 +128,6 @@ def main():
 		print('Using user specified arguments')
 		# Else parse args
 		trainModel(sys.argv[1:])
+
+if __name__ == '__main__':
+    main()
