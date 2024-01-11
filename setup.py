@@ -8,8 +8,8 @@ with open('LICENSE', 'r', encoding='utf-8') as fh:
 
 setuptools.setup(
     name='crackling',
-    version='2.0.0',
-    author='Jake Bradford, Timothy Chappell, Dimitri Perrin',
+    version='2.0.1',
+    author='Jake Bradford, Carl Schmitz, Timothy Chappell, Dimitri Perrin',
     author_email='jake.bradford, dimitri.perrin (add @.qut.edu.au)',
     description='Faster and better CRISPR guide RNA design with the Crackling method',
     long_description=long_description,
@@ -22,7 +22,7 @@ setuptools.setup(
     package_dir={'': 'src'},
     license=license,
     install_requires=[],
-    python_requires='>=3.6',
+    python_requires='>=3.8',
     entry_points = {
         'console_scripts': [
             'Crackling=crackling.utils.Crackling_cli:main',

@@ -22,7 +22,7 @@ Jacob Bradford, Timothy Chappell, and Dimitri Perrin. The CRISPR Journal. Jun 20
 
 - sgRNAScorer 2.0 model (included)
 
-- Python v3.6+
+- Python v3.8+
 
 ## Installation & Usage
 
@@ -36,7 +36,7 @@ Jacob Bradford, Timothy Chappell, and Dimitri Perrin. The CRISPR Journal. Jun 20
 2. Install using pip
 
     ```bash
-    python3.6 -m pip install -e .
+    python3.8 -m pip install -e .
     ```
 
     Important: the dot `.` indicates that *pip* will run `setup.py` from the current working directory.
@@ -260,14 +260,14 @@ optional arguments:
 
 Ben Langmead and Steven L Salzberg. Fast gapped-read alignment with Bowtie2. Nature Methods, 9(4):357, 2012.
 
-Bradford, J., & Perrin, D. (2019). A benchmark of computational CRISPR-Cas9 guide design methods. PLoS computational biology, 15(8), e1007274.
+Bradford, J., & Perrin, D. (2019). A benchmark of computational CRISPR-Cas9 guide design methods. PLoS Computational Biology, 15(8), e1007274.
 
-Bradford, J., & Perrin, D. (2019). Improving CRISPR guide design with consensus approaches. BMC genomics, 20(9), 931.
+Bradford, J., & Perrin, D. (2019). Improving CRISPR guide design with consensus approaches. BMC Genomics, 20(9), 931.
 
-Chari, R., Yeo, N. C., Chavez, A., & Church, G. M. (2017). sgRNA Scorer 2.0: a species-independent model to predict CRISPR/Cas9 activity. ACS synthetic biology, 6(5), 902-904.
+Chari, R., Yeo, N. C., Chavez, A., & Church, G. M. (2017). sgRNA Scorer 2.0: a species-independent model to predict CRISPR/Cas9 activity. ACS Synthetic Biology, 6(5), 902-904.
 
-Lorenz, R., Bernhart, S. H., Zu  Siederdissen, C. H., Tafer, H., Flamm, C., Stadler, P. F., &  Hofacker, I. L. (2011). ViennaRNA Package 2.0. *Algorithms for molecular biology*, *6*(1), 1-14.
+Lorenz, R., Bernhart, S. H., Zu  Siederdissen, C. H., Tafer, H., Flamm, C., Stadler, P. F., &  Hofacker, I. L. (2011). ViennaRNA Package 2.0. *Algorithms For Folecular Biology, 6(1), 1-14.
 
-Montague, T. G., Cruz, J. M., Gagnon, J. A., Church, G. M., & Valen, E. (2014). CHOPCHOP: a CRISPR/Cas9 and TALEN web tool for genome editing. Nucleic acids research, 42(W1), W401-W407.
+Montague, T. G., Cruz, J. M., Gagnon, J. A., Church, G. M., & Valen, E. (2014). CHOPCHOP: a CRISPR/Cas9 and TALEN web tool for genome editing. Nucleic Acids Research, 42(W1), W401-W407.
 
-Sunagawa, G. A., Sumiyama, K., Ukai-Tadenuma, M., Perrin, D., Fujishima, H., Ukai, H., ... & Shimizu, Y. (2016). Mammalian reverse genetics without crossing reveals Nr3a as a short-sleeper gene. Cell reports, 14(3), 662-677.
+Sunagawa, G. A., Sumiyama, K., Ukai-Tadenuma, M., Perrin, D., Fujishima, H., Ukai, H., ... & Shimizu, Y. (2016). Mammalian reverse genetics without crossing reveals Nr3a as a short-sleeper gene. Cell Reports, 14(3), 662-677.
