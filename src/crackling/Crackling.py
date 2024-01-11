@@ -253,7 +253,7 @@ def Crackling(configMngr):
 
         duplicatePercent = round(numDuplicateGuides / numIdentifiedGuides * 100.0, 3)
         printer(f'\tIdentified {numIdentifiedGuides:,} possible target sites in this file.')
-        printer(f'\tOf these, {len(duplicateGuides):,} are not unique. These sites occur a total of {numDuplicateGuides} times.')
+        printer(f'\tOf these, {len(duplicateGuides):,} are not unique. These sites occur a total of {numDuplicateGuides:,} times.')
         printer(f'\tRemoving {numDuplicateGuides:,} of {numIdentifiedGuides:,} ({duplicatePercent}%) guides.')
         printer(f'\t{len(candidateGuides):,} distinct guides have been discovered so far.')
 
@@ -277,7 +277,7 @@ def Crackling(configMngr):
     for batchFile in guideBatchinator:
         batchStartTime = time.time()
 
-        printer(f'Processing batch file {(batchFileId+1):,} of {len(guideBatchinator)}')
+        printer(f'Processing batch file {(batchFileId+1):,} of {len(guideBatchinator):,}')
 
         # Create new candidate guide dictionary
         candidateGuides = {}
@@ -401,14 +401,17 @@ def Crackling(configMngr):
             errorCount = 0
             notFoundCount = 0
 
-            pgLength = int(configMngr['rnafold']['page-length'])
+            pgLength = min(
+                int(configMngr['input']['batch-size']), 
+                int(configMngr['rnafold']['page-length'])
+            )
 
             for pgIdx, pageCandidateGuides in Paginator(
                 filterCandidateGuides(candidateGuides, MODULE_MM10DB),
                 pgLength
             ):
                 if pgLength > 0:
-                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength:,} per page).')
+                    printer(f'\tProcessing page {(pgIdx+1):,} (max {pgLength:,} per page).')
 
                 if os.path.exists(configMngr['rnafold']['output']):
                     os.remove(configMngr['rnafold']['output'])
@@ -501,10 +504,10 @@ def Crackling(configMngr):
             printer(f'\t{failedCount:,} of {testedCount:,} failed here.')
 
             if errorCount > 0:
-                printer(f'\t{errorCount} of {testedCount} erred here.')
+                printer(f'\t{errorCount:,} of {testedCount:,} erred here.')
 
             if notFoundCount > 0:
-                printer(f'\t{notFoundCount} of {testedCount} not found in RNAfold output.')
+                printer(f'\t{notFoundCount:,} of {testedCount:,} not found in RNAfold output.')
 
         #########################################
         ##         Calc mm10db result          ##
@@ -529,9 +532,9 @@ def Crackling(configMngr):
                     candidateGuides[target23]['acceptedByMm10db'] = CODE_ACCEPTED
                     acceptedCount += 1
 
-            printer(f'\t{acceptedCount} accepted.')
+            printer(f'\t{acceptedCount:,} accepted.')
 
-            printer(f'\t{failedCount} failed.')
+            printer(f'\t{failedCount:,} failed.')
 
             del acceptedCount
 
@@ -606,7 +609,10 @@ def Crackling(configMngr):
             testedCount = 0
             failedCount = 0
 
-            pgLength = int(configMngr['bowtie2']['page-length'])
+            pgLength = min(
+                int(configMngr['input']['batch-size']), 
+                int(configMngr['bowtie2']['page-length'])
+            )
 
             for pgIdx, pageCandidateGuides in Paginator(
                 filterCandidateGuides(candidateGuides, MODULE_SPECIFICITY),
@@ -614,7 +620,7 @@ def Crackling(configMngr):
             ):
 
                 if pgLength > 0:
-                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength:,} per page).')
+                    printer(f'\tProcessing page {(pgIdx+1):,} (max {pgLength:,} per page).')
 
                 if os.path.exists(configMngr['bowtie2']['output']):
                     os.remove(configMngr['bowtie2']['output'])
@@ -732,7 +738,10 @@ def Crackling(configMngr):
             testedCount = 0
             failedCount = 0
 
-            pgLength = int(configMngr['offtargetscore']['page-length'])
+            pgLength = min(
+                int(configMngr['input']['batch-size']), 
+                int(configMngr['offtargetscore']['page-length'])
+            )
 
             for pgIdx, pageCandidateGuides in Paginator(
                 filterCandidateGuides(candidateGuides, MODULE_SPECIFICITY),
@@ -740,7 +749,7 @@ def Crackling(configMngr):
             ):
 
                 if pgLength > 0:
-                    printer(f'\tProcessing page {(pgIdx+1)} ({pgLength:,} per page).')
+                    printer(f'\tProcessing page {(pgIdx+1):,} (max {pgLength:,} per page).')
 
                 # prepare the list of candidate guides to score
                 guidesInPage = 0
@@ -873,7 +882,7 @@ def Crackling(configMngr):
         #########################################
         printer('Done.')
 
-        printer(f'{len(candidateGuides)} guides evaluated.')
+        printer(f'{len(candidateGuides):,} guides evaluated.')
 
         printer('This batch ran in {} (dd hh:mm:ss) or {} seconds'.format(
             time.strftime('%d %H:%M:%S', time.gmtime((time.time() - batchStartTime))),
